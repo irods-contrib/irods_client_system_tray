@@ -100,7 +100,7 @@ class TrayController(QObject):
             return
         self.show_window()
 
-    def add_directory(self, source_directory: str, target_collection: str) -> None:
+    def add_directory(self, source_directory: str, target_collection: str, recursive: bool) -> None:
         """Normalize and persist a new monitored directory from the UI."""
 
         normalized_source = normalize_directory(source_directory)
@@ -115,10 +115,29 @@ class TrayController(QObject):
             self.window.set_status_message(f"Already monitoring {normalized_source}")
             return
 
+        # Prevent the user from adding a folder inside a recursively watched folder.
+        source_path = Path(normalized_source)
+        for directory in self.config.monitored_directories:
+            if not directory.recursive:
+                continue
+
+            watched_path = Path(directory.source_directory)
+            try:
+                source_path.relative_to(watched_path)
+            except ValueError:
+                continue
+
+            self.window.set_status_message(
+                f"{normalized_source} is already monitored through recursive watch {directory.source_directory}",
+                is_error=True,
+            )
+            return
+
         self.config.monitored_directories.append(
             MonitoredDirectory(
                 source_directory=normalized_source,
                 target_collection=normalized_target,
+                recursive=recursive,
             )
         )
         self._persist_and_sync()
@@ -259,10 +278,7 @@ class TrayController(QObject):
         action that changes directories or the global enabled state.
         """
 
-        monitored_sources = [
-            directory.source_directory for directory in self.config.monitored_directories
-        ]
-        self.monitor.sync(monitored_sources, self.config.is_monitoring_active)
+        self.monitor.sync(self.config.monitored_directories, self.config.is_monitoring_active)
 
         invalid_directories = {
             directory.source_directory

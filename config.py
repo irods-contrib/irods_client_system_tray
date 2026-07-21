@@ -26,6 +26,7 @@ class MonitoredDirectory:
 
     source_directory: str
     target_collection: str = ""
+    recursive: bool = True
 
 
 @dataclass(slots=True)
@@ -76,9 +77,11 @@ def _normalize_monitored_directory(
     if isinstance(directory, MonitoredDirectory):
         source_directory = directory.source_directory
         target_collection = directory.target_collection
+        recursive = directory.recursive
     elif isinstance(directory, dict):
         source_directory = str(directory.get("source_directory", "")).strip()
         target_collection = str(directory.get("target_collection", "")).strip()
+        recursive = bool(directory.get("recursive", True))
     else:
         return None
 
@@ -92,6 +95,7 @@ def _normalize_monitored_directory(
     return MonitoredDirectory(
         source_directory=normalize_directory(source_directory),
         target_collection=normalized_target,
+        recursive=recursive,
     )
 
 
@@ -195,6 +199,7 @@ class ConfigStore:
                 {
                     "source_directory": directory.source_directory,
                     "target_collection": directory.target_collection,
+                    "recursive": directory.recursive,
                 }
                 for directory in normalize_monitored_directories(config.monitored_directories)
             ],

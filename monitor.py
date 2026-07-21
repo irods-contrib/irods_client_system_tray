@@ -9,6 +9,8 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
+from config import MonitoredDirectory
+
 
 class EventBridge(QObject):
     """Expose watchdog activity as Qt signals that the GUI layer can consume safely.
@@ -114,11 +116,11 @@ class MonitorManager(QObject):
         self._bridge.directory_relocated.connect(self._handle_directory_relocated)
         self._bridge.directory_deleted.connect(self._handle_directory_deleted)
         self._bridge.monitor_error.connect(self.monitor_error.emit)
-        self._directory_watches: dict[str, ObservedWatch] = {}
+        self._directory_watches: dict[str, tuple[ObservedWatch, bool]] = {}
         self._parent_watches: dict[str, ObservedWatch] = {}
         self._parent_children: dict[str, set[str]] = {}
 
-    def sync(self, directories: list[str], is_active: bool) -> None:
+    def sync(self, directories: list[MonitoredDirectory], is_active: bool) -> None:
         """Reconcile active filesystem watches with the latest application state.
 
         When monitoring is disabled this tears everything down. When enabled, it keeps
@@ -133,11 +135,20 @@ class MonitorManager(QObject):
         if not self._ensure_running():
             return
 
-        expected_directories = set(directories)
+        # Track each configured directory alongside whether its watchdog should recurse.
+        expected_directories = {
+            directory.source_directory: directory.recursive for directory in directories
+        }
         expected_parents = self._build_parent_map(directories)
 
-        for directory, watch in list(self._directory_watches.items()):
-            if directory in expected_directories and Path(directory).is_dir():
+        for directory, (watch, recursive) in list(self._directory_watches.items()):
+            expected_recursive = expected_directories.get(directory)
+            # Recreate the watch if the folder vanished or its recursive setting changed.
+            if (
+                expected_recursive is not None
+                and recursive == expected_recursive
+                and Path(directory).is_dir()
+            ):
                 continue
             try:
                 self._observer.unschedule(watch)
@@ -156,16 +167,23 @@ class MonitorManager(QObject):
             self._parent_children.pop(parent, None)
 
         for directory in directories:
-            if directory in self._directory_watches:
+            if directory.source_directory in self._directory_watches:
                 continue
-            if not Path(directory).is_dir():
+            if not Path(directory.source_directory).is_dir():
                 continue
             try:
-                watch = self._observer.schedule(self._handler, directory, recursive=False)
+                # Apply the per-folder recursive setting from app_state.json / the GUI.
+                watch = self._observer.schedule(
+                    self._handler,
+                    directory.source_directory,
+                    recursive=directory.recursive,
+                )
             except OSError as exc:
-                self.monitor_error.emit(f"Failed to watch {directory}: {exc}")
+                self.monitor_error.emit(
+                    f"Failed to watch {directory.source_directory}: {exc}"
+                )
                 continue
-            self._directory_watches[directory] = watch
+            self._directory_watches[directory.source_directory] = (watch, directory.recursive)
 
         for parent, children in expected_parents.items():
             self._parent_children[parent] = children
@@ -287,12 +305,15 @@ class MonitorManager(QObject):
         )
         self.monitored_directory_deleted.emit(normalized_path)
 
-    def _build_parent_map(self, directories: list[str]) -> dict[str, set[str]]:
+    def _build_parent_map(
+        self,
+        directories: list[MonitoredDirectory],
+    ) -> dict[str, set[str]]:
         """Collect existing parent folders that should be watched for directory moves."""
 
         parents: dict[str, set[str]] = {}
         for directory in directories:
-            directory_path = Path(directory)
+            directory_path = Path(directory.source_directory)
             if not directory_path.is_dir():
                 continue
             parent_path = directory_path.parent
@@ -307,8 +328,8 @@ class MonitorManager(QObject):
     def _remove_directory_watch(self, directory: str) -> None:
         """Unschedule a tracked directory watch when its target path disappears."""
 
-        watch = self._directory_watches.pop(directory, None)
-        if watch is None or self._observer is None:
+        watch_entry = self._directory_watches.pop(directory, None)
+        if watch_entry is None or self._observer is None:
             print(
                 "[parent-monitor] no directory watch to remove "
                 f"directory={directory!r} observer_running={self._observer is not None}",
@@ -316,6 +337,8 @@ class MonitorManager(QObject):
             )
             return
 
+        # Stored watches keep both the watchdog handle and the recursive flag.
+        watch, _recursive = watch_entry
         try:
             self._observer.unschedule(watch)
             print(

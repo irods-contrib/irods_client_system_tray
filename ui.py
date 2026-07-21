@@ -133,7 +133,7 @@ class AddDirectoryDialog(QDialog):
     def __init__(self, zone_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Monitored Folder")
-        self.resize(560, 180)
+        self.resize(560, 220)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -159,9 +159,12 @@ class AddDirectoryDialog(QDialog):
         self.target_collection_input = ZoneRootLineEdit()
         self.target_collection_input.set_zone_name(zone_name)
         self.target_collection_input.setPlaceholderText("home/alice/collection")
+        self.recursive_checkbox = QCheckBox("Monitor subfolders recursively")
+        self.recursive_checkbox.setChecked(True)
 
         form_layout.addRow("Source directory", source_widget)
         form_layout.addRow("Target collection", self.target_collection_input)
+        form_layout.addRow("Recursive", self.recursive_checkbox)
 
         self.validation_label = QLabel()
         self.validation_label.setObjectName("validationLabel")
@@ -186,6 +189,7 @@ class AddDirectoryDialog(QDialog):
         return MonitoredDirectory(
             source_directory=self.source_directory_input.text().strip(),
             target_collection=self.target_collection_input.collection_path(),
+            recursive=self.recursive_checkbox.isChecked(),
         )
 
     def _choose_source_directory(self) -> None:
@@ -220,7 +224,7 @@ class SettingsWindow(QWidget):
     """
 
     monitoring_toggled = Signal(bool)
-    add_folder_requested = Signal(str, str)
+    add_folder_requested = Signal(str, str, bool)
     remove_folder_requested = Signal(str)
     save_irods_requested = Signal()
 
@@ -353,18 +357,21 @@ class SettingsWindow(QWidget):
         self.directory_list.clear()
         for directory in directories:
             target_label = directory.target_collection or "(target collection required)"
-            label = f"{directory.source_directory} -> {target_label}"
+            recursive_label = "recursive" if directory.recursive else "top-level only"
+            label = f"{directory.source_directory} -> {target_label} ({recursive_label})"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, directory.source_directory)
             item.setToolTip(
                 f"Source directory: {directory.source_directory}\n"
-                f"Target collection: {target_label}"
+                f"Target collection: {target_label}\n"
+                f"Recursive monitoring: {'On' if directory.recursive else 'Off'}"
             )
             if directory.source_directory in invalid_directories:
                 item.setForeground(QColor("#b42318"))
                 item.setToolTip(
                     "Directory does not currently exist and is not being watched.\n"
-                    f"Target collection: {target_label}"
+                    f"Target collection: {target_label}\n"
+                    f"Recursive monitoring: {'On' if directory.recursive else 'Off'}"
                 )
             self.directory_list.addItem(item)
         self._update_remove_button_state()
@@ -420,6 +427,7 @@ class SettingsWindow(QWidget):
         self.add_folder_requested.emit(
             directory.source_directory,
             directory.target_collection,
+            directory.recursive,
         )
 
     def _emit_remove_selected(self, _checked: bool = False) -> None:
