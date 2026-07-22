@@ -122,9 +122,7 @@ class TrayController(QObject):
                 continue
 
             watched_path = Path(directory.source_directory)
-            try:
-                source_path.relative_to(watched_path)
-            except ValueError:
+            if not source_path.is_relative_to(watched_path):
                 continue
 
             self.window.set_status_message(

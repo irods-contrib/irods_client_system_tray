@@ -116,7 +116,7 @@ class MonitorManager(QObject):
         self._bridge.directory_relocated.connect(self._handle_directory_relocated)
         self._bridge.directory_deleted.connect(self._handle_directory_deleted)
         self._bridge.monitor_error.connect(self.monitor_error.emit)
-        self._directory_watches: dict[str, tuple[ObservedWatch, bool]] = {}
+        self._directory_watches: dict[str, ObservedWatch] = {}
         self._parent_watches: dict[str, ObservedWatch] = {}
         self._parent_children: dict[str, set[str]] = {}
 
@@ -141,12 +141,12 @@ class MonitorManager(QObject):
         }
         expected_parents = self._build_parent_map(directories)
 
-        for directory, (watch, recursive) in list(self._directory_watches.items()):
+        for directory, watch in list(self._directory_watches.items()):
             expected_recursive = expected_directories.get(directory)
             # Recreate the watch if the folder vanished or its recursive setting changed.
             if (
                 expected_recursive is not None
-                and recursive == expected_recursive
+                and watch.is_recursive == expected_recursive
                 and Path(directory).is_dir()
             ):
                 continue
@@ -183,7 +183,7 @@ class MonitorManager(QObject):
                     f"Failed to watch {directory.source_directory}: {exc}"
                 )
                 continue
-            self._directory_watches[directory.source_directory] = (watch, directory.recursive)
+            self._directory_watches[directory.source_directory] = watch
 
         for parent, children in expected_parents.items():
             self._parent_children[parent] = children
@@ -328,8 +328,8 @@ class MonitorManager(QObject):
     def _remove_directory_watch(self, directory: str) -> None:
         """Unschedule a tracked directory watch when its target path disappears."""
 
-        watch_entry = self._directory_watches.pop(directory, None)
-        if watch_entry is None or self._observer is None:
+        watch = self._directory_watches.pop(directory, None)
+        if watch is None or self._observer is None:
             print(
                 "[parent-monitor] no directory watch to remove "
                 f"directory={directory!r} observer_running={self._observer is not None}",
@@ -337,8 +337,6 @@ class MonitorManager(QObject):
             )
             return
 
-        # Stored watches keep both the watchdog handle and the recursive flag.
-        watch, _recursive = watch_entry
         try:
             self._observer.unschedule(watch)
             print(
