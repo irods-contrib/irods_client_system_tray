@@ -20,6 +20,8 @@ from config import (
     normalize_directory,
     normalize_irods_zone_name,
     normalize_monitored_directories,
+    normalize_post_upload_action,
+    normalize_post_upload_destination,
     normalize_target_collection_for_zone,
     rezone_target_collection,
 )
@@ -36,7 +38,7 @@ class TrayController(QObject):
     icon behavior so monitoring can continue while the window stays hidden.
     """
 
-    queue_upload = Signal(str, str, str)
+    queue_upload = Signal(str, str, str, str, str)
     notification_open_requested = Signal()
     upload_environment_updated = Signal(object)
     upload_environment_cleared = Signal()
@@ -164,7 +166,14 @@ class TrayController(QObject):
                 self._login_dialog = None
             login_dialog.deleteLater()
 
-    def add_directory(self, source_directory: str, target_collection: str, recursive: bool) -> None:
+    def add_directory(
+        self,
+        source_directory: str,
+        target_collection: str,
+        recursive: bool,
+        post_upload_action: str,
+        post_upload_destination: str,
+    ) -> None:
         """Normalize and persist a new monitored directory from the UI."""
 
         normalized_source = normalize_directory(source_directory)
@@ -172,34 +181,57 @@ class TrayController(QObject):
             target_collection,
             self.environment.irods_zone_name,
         )
+        normalized_action = normalize_post_upload_action(post_upload_action)
+        normalized_destination = normalize_post_upload_destination(post_upload_destination)
+        if normalized_action != "move":
+            normalized_destination = ""
         if any(
             directory.source_directory == normalized_source
             for directory in self.config.monitored_directories
         ):
             self.window.set_status_message(f"Already monitoring {normalized_source}")
             return
-
-        # Prevent the user from adding a folder inside a recursively watched folder.
-        source_path = Path(normalized_source)
-        for directory in self.config.monitored_directories:
-            if not directory.recursive:
-                continue
-
-            watched_path = Path(directory.source_directory)
-            if not source_path.is_relative_to(watched_path):
-                continue
-
+        if normalized_action == "move" and not normalized_destination:
             self.window.set_status_message(
-                f"{normalized_source} is already monitored through recursive watch {directory.source_directory}",
+                "Choose a destination for files moved after upload.",
                 is_error=True,
             )
             return
+        conflict_root = self._find_post_upload_destination_conflict(
+            normalized_source,
+            normalized_action,
+            normalized_destination,
+        )
+        if conflict_root is not None:
+            self.window.set_status_message(
+                f"Move destination must be outside monitored folders. Conflicts with {conflict_root}.",
+                is_error=True,
+            )
+            return
+
+        source_path = Path(normalized_source)
+        for directory in self.config.monitored_directories:
+            watched_path = Path(directory.source_directory)
+            if directory.recursive and source_path.is_relative_to(watched_path):
+                self.window.set_status_message(
+                    f"{normalized_source} is already monitored through recursive watch {directory.source_directory}",
+                    is_error=True,
+                )
+                return
+            if recursive and watched_path.is_relative_to(source_path):
+                self.window.set_status_message(
+                    f"Recursive watch {normalized_source} would overlap existing folder {directory.source_directory}",
+                    is_error=True,
+                )
+                return
 
         self.config.monitored_directories.append(
             MonitoredDirectory(
                 source_directory=normalized_source,
                 target_collection=normalized_target,
                 recursive=recursive,
+                post_upload_action=normalized_action,
+                post_upload_destination=normalized_destination,
             )
         )
         self._persist_and_sync()
@@ -360,6 +392,7 @@ class TrayController(QObject):
         self.upload_worker.upload_paths_resolved.connect(self._handle_upload_paths_resolved)
         self.upload_worker.upload_progress.connect(self._handle_upload_progress)
         self.upload_worker.upload_finished.connect(self._handle_upload_finished)
+        self.upload_worker.upload_warning.connect(self._handle_upload_warning)
         self.upload_worker.upload_failed.connect(self._handle_upload_failed)
 
     def _sync_from_config(self, *, show_status: bool = True) -> None:
@@ -504,6 +537,8 @@ class TrayController(QObject):
             normalized_path,
             monitored_directory.source_directory,
             monitored_directory.target_collection,
+            monitored_directory.post_upload_action,
+            monitored_directory.post_upload_destination,
         )
 
     def _handle_monitor_error(self, message: str) -> None:
@@ -621,6 +656,12 @@ class TrayController(QObject):
         self.window.set_status_message(f"Uploaded {Path(local_path).name} to iRODS.")
         self.window.append_activity(f"uploaded -> {local_path} to {logical_path}")
 
+    def _handle_upload_warning(self, local_path: str, message: str) -> None:
+        """Surface post-upload cleanup problems without marking the transfer failed."""
+
+        self.window.set_status_message(message, is_error=True)
+        self.window.append_activity(f"upload warning: {local_path} ({message})")
+
     def _handle_upload_failed(self, local_path: str, message: str) -> None:
         """Clear queue tracking and surface upload failures to the user."""
 
@@ -659,6 +700,33 @@ class TrayController(QObject):
         self.window.append_activity(
             f"cancelling queued uploads for unavailable folder -> {directory}"
         )
+
+    def _find_post_upload_destination_conflict(
+        self,
+        source_directory: str,
+        post_upload_action: str,
+        post_upload_destination: str,
+    ) -> str | None:
+        """Return the monitored root that would re-trigger ingestion for moved files."""
+
+        if post_upload_action != "move" or not post_upload_destination:
+            return None
+
+        destination_path = Path(post_upload_destination).expanduser().resolve(strict=False)
+        monitored_roots = [
+            directory.source_directory for directory in self.config.monitored_directories
+        ]
+        monitored_roots.append(source_directory)
+
+        for monitored_root in monitored_roots:
+            monitored_root_path = Path(monitored_root).expanduser().resolve(strict=False)
+            try:
+                destination_path.relative_to(monitored_root_path)
+            except ValueError:
+                continue
+            return monitored_root
+
+        return None
 
     def _align_directory_targets_with_zone(self) -> None:
         """Ensure every stored target collection starts at the current zone root."""

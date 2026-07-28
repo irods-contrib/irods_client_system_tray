@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFrame,
@@ -27,7 +28,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config import IRODSEnvironment, MonitoredDirectory, normalize_irods_zone_name
+from config import (
+    DEFAULT_POST_UPLOAD_ACTION,
+    IRODSEnvironment,
+    MonitoredDirectory,
+    normalize_directory,
+    normalize_irods_zone_name,
+)
+
+
+POST_UPLOAD_ACTION_OPTIONS = (
+    ("Recycle local files after upload", "recycle"),
+    ("Keep local files", "keep"),
+    ("Move local files after upload", "move"),
+    ("Delete local files permanently after upload", "delete"),
+)
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +516,31 @@ class LoginDialog(QDialog):
         self.accept()
 
 
+def _describe_post_upload_policy(directory: MonitoredDirectory) -> str:
+    """Return a short user-facing summary of the folder cleanup policy."""
+
+    if directory.post_upload_action == "recycle":
+        return "send to recycling bin after upload"
+    if directory.post_upload_action == "delete":
+        return "delete permanently after upload"
+    if directory.post_upload_action == "move":
+        destination = directory.post_upload_destination or "(destination required)"
+        return f"move to {destination}"
+    return "keep local files"
+
+
+def _is_path_within_directory(path: str, directory: str) -> bool:
+    """Return whether the candidate path lands inside or equals a watched root."""
+
+    candidate = Path(path).expanduser().resolve(strict=False)
+    root = Path(directory).expanduser().resolve(strict=False)
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 class ZoneRootLineEdit(QLineEdit):
     """Keep an iRODS collection input anchored beneath an uneditable zone prefix."""
 
@@ -596,10 +636,19 @@ class ZoneRootLineEdit(QLineEdit):
 class AddDirectoryDialog(QDialog):
     """Collect the local folder path and destination collection for a new watch."""
 
-    def __init__(self, zone_name: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        zone_name: str,
+        monitored_directories: list[MonitoredDirectory],
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._monitored_roots = [
+            normalize_directory(directory.source_directory)
+            for directory in monitored_directories
+        ]
         self.setWindowTitle("Add Monitored Folder")
-        self.resize(560, 220)
+        self.resize(560, 260)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -628,9 +677,38 @@ class AddDirectoryDialog(QDialog):
         self.recursive_checkbox = QCheckBox("Monitor subfolders recursively")
         self.recursive_checkbox.setChecked(True)
 
+        self.post_upload_action_input = QComboBox()
+        for label, value in POST_UPLOAD_ACTION_OPTIONS:
+            self.post_upload_action_input.addItem(label, value)
+        default_action_index = self.post_upload_action_input.findData(DEFAULT_POST_UPLOAD_ACTION)
+        if default_action_index >= 0:
+            self.post_upload_action_input.setCurrentIndex(default_action_index)
+        self.post_upload_action_input.currentIndexChanged.connect(
+            self._update_post_upload_action_state
+        )
+
+        self.post_upload_destination_input = QLineEdit()
+        self.post_upload_destination_input.setPlaceholderText("Choose a destination folder")
+        destination_browse_button = QPushButton("Browse")
+        destination_browse_button.setProperty("variant", "ghost")
+        destination_browse_button.clicked.connect(self._choose_post_upload_destination)
+
+        destination_layout = QHBoxLayout()
+        destination_layout.setContentsMargins(0, 0, 0, 0)
+        destination_layout.addWidget(self.post_upload_destination_input, 1)
+        destination_layout.addWidget(destination_browse_button)
+        self.post_upload_destination_widget = QWidget()
+        self.post_upload_destination_widget.setLayout(destination_layout)
+
         form_layout.addRow("Source directory", source_widget)
         form_layout.addRow("Target collection", self.target_collection_input)
         form_layout.addRow("Recursive", self.recursive_checkbox)
+        form_layout.addRow("After upload", self.post_upload_action_input)
+        self.post_upload_destination_label = QLabel("Move destination")
+        form_layout.addRow(
+            self.post_upload_destination_label,
+            self.post_upload_destination_widget,
+        )
 
         self.validation_label = QLabel()
         self.validation_label.setObjectName("validationLabel")
@@ -648,6 +726,7 @@ class AddDirectoryDialog(QDialog):
         layout.addLayout(form_layout)
         layout.addWidget(self.validation_label)
         layout.addWidget(self.button_box)
+        self._update_post_upload_action_state()
 
     def get_directory(self) -> MonitoredDirectory:
         """Return the user-entered folder mapping from the dialog form."""
@@ -656,6 +735,8 @@ class AddDirectoryDialog(QDialog):
             source_directory=self.source_directory_input.text().strip(),
             target_collection=self.target_collection_input.collection_path(),
             recursive=self.recursive_checkbox.isChecked(),
+            post_upload_action=self.post_upload_action_input.currentData(),
+            post_upload_destination=self.post_upload_destination_input.text().strip(),
         )
 
     def _choose_source_directory(self) -> None:
@@ -671,14 +752,67 @@ class AddDirectoryDialog(QDialog):
             self.source_directory_input.setText(selected)
             self.validation_label.clear()
 
+    def _choose_post_upload_destination(self) -> None:
+        """Open a native picker and populate the move destination field."""
+
+        starting_directory = self.post_upload_destination_input.text().strip() or str(Path.home())
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Select destination for moved files",
+            starting_directory,
+        )
+        if selected:
+            self.post_upload_destination_input.setText(selected)
+            self.validation_label.clear()
+
     def _accept_if_valid(self) -> None:
         """Require both folder attributes before closing with acceptance."""
 
-        if not self.source_directory_input.text().strip():
+        source_directory = self.source_directory_input.text().strip()
+        if not source_directory:
             self.validation_label.setText("Select a source directory to monitor.")
             return
+
+        if self.post_upload_action_input.currentData() == "move":
+            destination = self.post_upload_destination_input.text().strip()
+            if not destination:
+                self.validation_label.setText(
+                    "Select a destination for files moved after upload."
+                )
+                return
+
+            conflict_root = self._find_conflicting_monitored_root(source_directory, destination)
+            if conflict_root is not None:
+                self.validation_label.setText(
+                    f"Move destination must be outside monitored folders. Conflicts with {conflict_root}."
+                )
+                return
+
         self.validation_label.clear()
         self.accept()
+
+    def _find_conflicting_monitored_root(
+        self,
+        source_directory: str,
+        destination: str,
+    ) -> str | None:
+        """Return the monitored root that would re-ingest moved files, if any."""
+
+        normalized_source = normalize_directory(source_directory)
+        normalized_destination = normalize_directory(destination)
+        for monitored_root in [*self._monitored_roots, normalized_source]:
+            if _is_path_within_directory(normalized_destination, monitored_root):
+                return monitored_root
+        return None
+
+    def _update_post_upload_action_state(self) -> None:
+        """Only show the destination picker when the move action is selected."""
+
+        requires_destination = self.post_upload_action_input.currentData() == "move"
+        self.post_upload_destination_widget.setEnabled(requires_destination)
+        self.post_upload_destination_widget.setVisible(requires_destination)
+        self.post_upload_destination_label.setVisible(requires_destination)
+        self.validation_label.clear()
 
 
 class SettingsWindow(QWidget):
@@ -690,7 +824,7 @@ class SettingsWindow(QWidget):
     """
 
     monitoring_toggled = Signal(bool)
-    add_folder_requested = Signal(str, str, bool)
+    add_folder_requested = Signal(str, str, bool, str, str)
     remove_folder_requested = Signal(str)
     save_irods_requested = Signal()
 
@@ -702,6 +836,7 @@ class SettingsWindow(QWidget):
         self.setWindowTitle("Ingestion Monitor")
         self.resize(640, 460)
         self._irods_zone_for_new_folders = "tempZone"
+        self._monitored_directories: list[MonitoredDirectory] = []
 
         self.title_label = QLabel("Directory Ingestion")
         self.title_label.setObjectName("settingsTitleLabel")
@@ -821,23 +956,30 @@ class SettingsWindow(QWidget):
         """Refresh the folder list and visually flag directories that no longer exist."""
 
         self.directory_list.clear()
+        self._monitored_directories = list(directories)
         for directory in directories:
             target_label = directory.target_collection or "(target collection required)"
             recursive_label = "recursive" if directory.recursive else "top-level only"
-            label = f"{directory.source_directory} -> {target_label} ({recursive_label})"
+            cleanup_label = _describe_post_upload_policy(directory)
+            label = (
+                f"{directory.source_directory} -> {target_label} "
+                f"({recursive_label}, {cleanup_label})"
+            )
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, directory.source_directory)
             item.setToolTip(
                 f"Source directory: {directory.source_directory}\n"
                 f"Target collection: {target_label}\n"
-                f"Recursive monitoring: {'On' if directory.recursive else 'Off'}"
+                f"Recursive monitoring: {'On' if directory.recursive else 'Off'}\n"
+                f"Post-upload action: {cleanup_label}"
             )
             if directory.source_directory in invalid_directories:
                 item.setForeground(QColor("#b42318"))
                 item.setToolTip(
                     "Directory does not currently exist and is not being watched.\n"
                     f"Target collection: {target_label}\n"
-                    f"Recursive monitoring: {'On' if directory.recursive else 'Off'}"
+                    f"Recursive monitoring: {'On' if directory.recursive else 'Off'}\n"
+                    f"Post-upload action: {cleanup_label}"
                 )
             self.directory_list.addItem(item)
         self._update_remove_button_state()
@@ -885,7 +1027,11 @@ class SettingsWindow(QWidget):
     def _emit_add_requested(self, _checked: bool = False) -> None:
         """Translate the add button click into a controller-facing signal."""
 
-        dialog = AddDirectoryDialog(self._irods_zone_for_new_folders, self)
+        dialog = AddDirectoryDialog(
+            self._irods_zone_for_new_folders,
+            self._monitored_directories,
+            self,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -894,6 +1040,8 @@ class SettingsWindow(QWidget):
             directory.source_directory,
             directory.target_collection,
             directory.recursive,
+            directory.post_upload_action,
+            directory.post_upload_destination,
         )
 
     def _emit_remove_selected(self, _checked: bool = False) -> None:

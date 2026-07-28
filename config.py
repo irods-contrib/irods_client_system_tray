@@ -10,6 +10,8 @@ from typing import Iterable
 
 CONFIG_PATH = Path(__file__).resolve().with_name("app_state.json")
 IRODS_ENVIRONMENT_PATH = Path(__file__).resolve().with_name("irods_environment.json")
+DEFAULT_POST_UPLOAD_ACTION = "delete"
+POST_UPLOAD_ACTIONS = frozenset({"keep", "recycle", "delete", "move"})
 
 
 @dataclass(slots=True)
@@ -27,6 +29,8 @@ class MonitoredDirectory:
     source_directory: str
     target_collection: str = ""
     recursive: bool = True
+    post_upload_action: str = DEFAULT_POST_UPLOAD_ACTION
+    post_upload_destination: str = ""
 
 
 @dataclass(slots=True)
@@ -48,6 +52,23 @@ def normalize_directory(path: str) -> str:
     """
 
     return str(Path(path).expanduser().resolve(strict=False))
+
+
+def normalize_post_upload_action(action: str) -> str:
+    """Return a supported post-upload action or fall back to the safe default."""
+
+    normalized_action = str(action).strip().lower()
+    if normalized_action not in POST_UPLOAD_ACTIONS:
+        return DEFAULT_POST_UPLOAD_ACTION
+    return normalized_action
+
+
+def normalize_post_upload_destination(path: str) -> str:
+    """Return a canonical cleanup destination path when one is provided."""
+    strpath = str(path)
+    if not strpath.strip():
+        return ""
+    return normalize_directory(strpath)
 
 
 def normalize_monitored_directories(
@@ -78,10 +99,16 @@ def _normalize_monitored_directory(
         source_directory = directory.source_directory
         target_collection = directory.target_collection
         recursive = directory.recursive
+        post_upload_action = directory.post_upload_action
+        post_upload_destination = directory.post_upload_destination
     elif isinstance(directory, dict):
         source_directory = str(directory.get("source_directory", "")).strip()
         target_collection = str(directory.get("target_collection", "")).strip()
         recursive = bool(directory.get("recursive", True))
+        post_upload_action = str(
+            directory.get("post_upload_action", DEFAULT_POST_UPLOAD_ACTION)
+        )
+        post_upload_destination = str(directory.get("post_upload_destination", ""))
     else:
         return None
 
@@ -92,10 +119,19 @@ def _normalize_monitored_directory(
     if target_collection:
         normalized_target = normalize_irods_collection(target_collection)
 
+    normalized_action = normalize_post_upload_action(post_upload_action)
+    normalized_destination = normalize_post_upload_destination(post_upload_destination)
+    if normalized_action != "move":
+        normalized_destination = ""
+    elif not normalized_destination:
+        normalized_action = DEFAULT_POST_UPLOAD_ACTION
+
     return MonitoredDirectory(
         source_directory=normalize_directory(source_directory),
         target_collection=normalized_target,
         recursive=recursive,
+        post_upload_action=normalized_action,
+        post_upload_destination=normalized_destination,
     )
 
 
@@ -200,6 +236,8 @@ class ConfigStore:
                     "source_directory": directory.source_directory,
                     "target_collection": directory.target_collection,
                     "recursive": directory.recursive,
+                    "post_upload_action": directory.post_upload_action,
+                    "post_upload_destination": directory.post_upload_destination,
                 }
                 for directory in normalize_monitored_directories(config.monitored_directories)
             ],

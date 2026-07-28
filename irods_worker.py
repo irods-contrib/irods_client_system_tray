@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import time
 from pathlib import Path, PurePosixPath
 from threading import Lock
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from config import IRODSEnvironment, normalize_irods_collection
+from config import (
+    IRODSEnvironment,
+    normalize_irods_collection,
+    normalize_post_upload_action,
+    normalize_post_upload_destination,
+)
 
 
 class IRODSUploadWorker(QObject):
@@ -21,6 +28,7 @@ class IRODSUploadWorker(QObject):
     upload_cancelled = Signal(str, str)
     upload_paths_resolved = Signal(str, str)
     upload_debug = Signal(str)
+    upload_warning = Signal(str, str)
 
     def __init__(self, environment: IRODSEnvironment | None = None) -> None:
         super().__init__()
@@ -56,12 +64,14 @@ class IRODSUploadWorker(QObject):
         with self._cancelled_monitored_roots_lock:
             self._cancelled_monitored_roots.discard(normalized_root)
 
-    @Slot(str, str, str)
+    @Slot(str, str, str, str, str)
     def upload_file(
         self,
         local_path: str,
         monitored_root: str,
         target_collection: str,
+        post_upload_action: str,
+        post_upload_destination: str,
     ) -> None:
         """Upload a created or moved file into the configured iRODS collection."""
 
@@ -69,6 +79,8 @@ class IRODSUploadWorker(QObject):
         monitored_directory = Path(monitored_root).expanduser().resolve(strict=False)
         normalized_monitored_root = str(monitored_directory)
         environment = self._copy_environment(self._environment)
+        normalized_action = normalize_post_upload_action(post_upload_action)
+        normalized_destination = normalize_post_upload_destination(post_upload_destination)
         stage = "initializing upload"
 
         if self._is_cancelled(normalized_monitored_root):
@@ -116,7 +128,23 @@ class IRODSUploadWorker(QObject):
             )
             return
 
+        cleanup_warning: str | None = None
+        try:
+            self._run_post_upload_action(
+                local_file,
+                monitored_directory,
+                normalized_action,
+                normalized_destination,
+            )
+        except Exception as exc:  # noqa: BLE001
+            cleanup_warning = (
+                "Upload succeeded, but post-upload "
+                f"{normalized_action} cleanup failed: {self._format_exception_message(exc)}"
+            )
+
         self.upload_finished.emit(str(local_file), logical_path)
+        if cleanup_warning is not None:
+            self.upload_warning.emit(str(local_file), cleanup_warning)
 
     def _validate_environment(self, environment: IRODSEnvironment) -> None:
         """Reject incomplete iRODS settings before attempting a network connection."""
@@ -162,12 +190,7 @@ class IRODSUploadWorker(QObject):
         target_collection: str,
     ) -> str:
         """Map a local file into the configured iRODS collection root."""
-
-        if local_file.is_relative_to(monitored_directory):
-            relative_path = local_file.relative_to(monitored_directory)
-        else:
-            relative_path = Path(local_file.name)
-
+        relative_path = self._build_relative_path(local_file, monitored_directory)
         logical_root = PurePosixPath(normalize_irods_collection(target_collection))
         return str(logical_root.joinpath(*relative_path.parts))
 
@@ -233,6 +256,61 @@ class IRODSUploadWorker(QObject):
             return
 
         session.collections.create(destination_collection, recurse=True)
+
+    def _run_post_upload_action(
+        self,
+        local_file: Path,
+        monitored_directory: Path,
+        post_upload_action: str,
+        post_upload_destination: str,
+    ) -> None:
+        """Apply the configured local-file cleanup only after iRODS put succeeds."""
+
+        if post_upload_action == "keep":
+            return
+
+        if post_upload_action == "recycle":
+            self.upload_debug.emit(f"upload debug -> stage=post-upload recycle local={local_file}")
+            self._send_to_trash(local_file)
+            return
+
+        if post_upload_action == "delete":
+            self.upload_debug.emit(
+                f"upload debug -> stage=post-upload permanent delete local={local_file}"
+            )
+            os.remove(local_file)
+            return
+
+        relative_path = self._build_relative_path(local_file, monitored_directory)
+        destination_path = Path(post_upload_destination).joinpath(*relative_path.parts)
+        self.upload_debug.emit(
+            "upload debug -> stage=post-upload move "
+            f"local={local_file} destination={destination_path}"
+        )
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        if destination_path.exists():
+            raise FileExistsError(f"Destination already exists: {destination_path}")
+        shutil.move(str(local_file), str(destination_path))
+
+    def _build_relative_path(self, local_file: Path, monitored_directory: Path) -> Path:
+        """Preserve the path beneath the monitored root for uploads and moves."""
+
+        try:
+            return local_file.relative_to(monitored_directory)
+        except ValueError:
+            return Path(local_file.name)
+
+    def _send_to_trash(self, local_file: Path) -> None:
+        """Use the platform trash for the recycle post-upload action."""
+
+        try:
+            from send2trash import send2trash
+        except ImportError as exc:  # pragma: no cover - environment dependent
+            raise RuntimeError(
+                "send2trash is not installed. Add it to the environment to enable recycle-after-upload."
+            ) from exc
+
+        send2trash(str(local_file))
 
     def _format_exception_message(self, exc: Exception) -> str:
         """Return a stable error string even when the underlying exception is blank."""
