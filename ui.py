@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import socket
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
+    QRadioButton,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -35,6 +37,7 @@ from config import (
     IRODSEnvironment,
     MonitoredDirectory,
     RetryConfig,
+    RegexFilterConfig,
     normalize_directory,
     normalize_irods_zone_name,
 )
@@ -532,6 +535,18 @@ def _describe_post_upload_policy(directory: MonitoredDirectory) -> str:
     return "keep local files"
 
 
+def _describe_regex_filter(directory: MonitoredDirectory) -> str:
+    """Return a short user-facing summary of the regex filter configuration."""
+
+    if directory.regex_filter.mode == "disabled":
+        return "regex filtering off"
+
+    mode_label = "allow" if directory.regex_filter.mode == "allow" else "deny"
+    pattern_count = len(directory.regex_filter.patterns)
+    pattern_label = "pattern" if pattern_count == 1 else "patterns"
+    return f"regex {mode_label}: {pattern_count} {pattern_label}"
+
+
 def _is_path_within_directory(path: str, directory: str) -> bool:
     """Return whether the candidate path lands inside or equals a watched root."""
 
@@ -636,6 +651,69 @@ class ZoneRootLineEdit(QLineEdit):
             self.setCursorPosition(prefix_length)
 
 
+class RegexEditorDialog(QDialog):
+    """Collect and validate one regex pattern per line before saving."""
+
+    def __init__(
+        self,
+        patterns: list[str] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Edit Regex Patterns")
+        self.resize(520, 360)
+        self.patterns: list[str] = list(patterns or [])
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        helper_label = QLabel("One regex pattern per line")
+        helper_label.setWordWrap(True)
+
+        self.pattern_input = QPlainTextEdit()
+        self.pattern_input.setPlainText("\n".join(self.patterns))
+
+        self.validation_label = QLabel()
+        self.validation_label.setObjectName("validationLabel")
+        self.validation_label.setWordWrap(True)
+
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Cancel).setProperty(
+            "variant", "pill"
+        )
+        self.button_box.accepted.connect(self._accept_if_valid)
+        self.button_box.rejected.connect(self.reject)
+
+        layout.addWidget(helper_label)
+        layout.addWidget(self.pattern_input, 1)
+        layout.addWidget(self.validation_label)
+        layout.addWidget(self.button_box)
+
+    def _accept_if_valid(self) -> None:
+        """Validate each non-empty line as a standalone regex before saving."""
+
+        cleaned_patterns: list[str] = []
+        for line_number, raw_line in enumerate(self.pattern_input.toPlainText().splitlines(), start=1):
+            pattern = raw_line.strip()
+            if not pattern:
+                continue
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                self.validation_label.setText(
+                    f"Invalid regex on line {line_number}: {exc}"
+                )
+                return
+            cleaned_patterns.append(pattern)
+
+        self.validation_label.clear()
+        self.patterns = cleaned_patterns
+        self.accept()
+
+
 class AddDirectoryDialog(QDialog):
     """Collect the local folder path and destination collection for a new watch."""
 
@@ -650,8 +728,9 @@ class AddDirectoryDialog(QDialog):
             normalize_directory(directory.source_directory)
             for directory in monitored_directories
         ]
+        self._regex_patterns: list[str] = []
         self.setWindowTitle("Add Monitored Folder")
-        self.resize(560, 260)
+        self.resize(560, 380)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
@@ -713,6 +792,42 @@ class AddDirectoryDialog(QDialog):
             self.post_upload_destination_widget,
         )
 
+        self.regex_filter_toggle = QCheckBox("Enable Regex Filtering")
+        self.regex_filter_toggle.toggled.connect(self._update_regex_filter_state)
+
+        self.regex_deny_radio = QRadioButton("Deny")
+        self.regex_allow_radio = QRadioButton("Allow")
+        self.regex_deny_radio.setChecked(True)
+
+        regex_mode_layout = QHBoxLayout()
+        regex_mode_layout.setContentsMargins(0, 0, 0, 0)
+        regex_mode_layout.addWidget(self.regex_deny_radio)
+        regex_mode_layout.addWidget(self.regex_allow_radio)
+        regex_mode_layout.addStretch(1)
+        regex_mode_widget = QWidget()
+        regex_mode_widget.setLayout(regex_mode_layout)
+
+        self.regex_summary_label = QLabel()
+        self.regex_summary_label.setWordWrap(True)
+
+        self.regex_edit_button = QPushButton("Edit Regex...")
+        self.regex_edit_button.setProperty("variant", "ghost")
+        self.regex_edit_button.clicked.connect(self._edit_regex_patterns)
+
+        regex_pattern_layout = QHBoxLayout()
+        regex_pattern_layout.setContentsMargins(0, 0, 0, 0)
+        regex_pattern_layout.addWidget(self.regex_summary_label, 1)
+        regex_pattern_layout.addWidget(self.regex_edit_button)
+        regex_pattern_widget = QWidget()
+        regex_pattern_widget.setLayout(regex_pattern_layout)
+
+        self.regex_filter_details = QWidget()
+        regex_layout = QFormLayout(self.regex_filter_details)
+        regex_layout.setSpacing(10)
+        regex_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        regex_layout.addRow("Mode", regex_mode_widget)
+        regex_layout.addRow("Patterns", regex_pattern_widget)
+
         self.validation_label = QLabel()
         self.validation_label.setObjectName("validationLabel")
         self.validation_label.setWordWrap(True)
@@ -727,9 +842,13 @@ class AddDirectoryDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
 
         layout.addLayout(form_layout)
+        layout.addWidget(self.regex_filter_toggle)
+        layout.addWidget(self.regex_filter_details)
         layout.addWidget(self.validation_label)
         layout.addWidget(self.button_box)
         self._update_post_upload_action_state()
+        self._update_regex_summary()
+        self._update_regex_filter_state()
 
     def get_directory(self) -> MonitoredDirectory:
         """Return the user-entered folder mapping from the dialog form."""
@@ -740,6 +859,14 @@ class AddDirectoryDialog(QDialog):
             recursive=self.recursive_checkbox.isChecked(),
             post_upload_action=self.post_upload_action_input.currentData(),
             post_upload_destination=self.post_upload_destination_input.text().strip(),
+            regex_filter=RegexFilterConfig(
+                mode=(
+                    "disabled"
+                    if not self.regex_filter_toggle.isChecked()
+                    else "allow" if self.regex_allow_radio.isChecked() else "deny"
+                ),
+                patterns=list(self._regex_patterns),
+            ),
         )
 
     def _choose_source_directory(self) -> None:
@@ -768,6 +895,17 @@ class AddDirectoryDialog(QDialog):
             self.post_upload_destination_input.setText(selected)
             self.validation_label.clear()
 
+    def _edit_regex_patterns(self) -> None:
+        """Open the regex editor dialog and keep only validated pattern lines."""
+
+        dialog = RegexEditorDialog(self._regex_patterns, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        self._regex_patterns = list(dialog.patterns)
+        self._update_regex_summary()
+        self.validation_label.clear()
+
     def _accept_if_valid(self) -> None:
         """Require both folder attributes before closing with acceptance."""
 
@@ -790,6 +928,12 @@ class AddDirectoryDialog(QDialog):
                     f"Move destination must be outside monitored folders. Conflicts with {conflict_root}."
                 )
                 return
+
+        if self.regex_filter_toggle.isChecked() and not self._regex_patterns:
+            self.validation_label.setText(
+                "Add at least one regex pattern or disable regex filtering."
+            )
+            return
 
         self.validation_label.clear()
         self.accept()
@@ -817,6 +961,23 @@ class AddDirectoryDialog(QDialog):
         self.post_upload_destination_label.setVisible(requires_destination)
         self.validation_label.clear()
 
+    def _update_regex_filter_state(self, *_args) -> None:
+        """Show regex controls only while regex filtering is enabled."""
+
+        self.regex_filter_details.setVisible(self.regex_filter_toggle.isChecked())
+        self.validation_label.clear()
+
+    def _update_regex_summary(self) -> None:
+        """Refresh the small pattern-count summary shown beside the editor button."""
+
+        pattern_count = len(self._regex_patterns)
+        if pattern_count == 0:
+            self.regex_summary_label.setText("No patterns configured")
+            return
+
+        pattern_label = "pattern" if pattern_count == 1 else "patterns"
+        self.regex_summary_label.setText(f"{pattern_count} {pattern_label} configured")
+
 
 class SettingsWindow(QWidget):
     """Provide the configuration window for monitored folders and recent activity.
@@ -827,7 +988,7 @@ class SettingsWindow(QWidget):
     """
 
     monitoring_toggled = Signal(bool)
-    add_folder_requested = Signal(str, str, bool, str, str)
+    add_folder_requested = Signal(object)
     remove_folder_requested = Signal(str)
     retry_failed_upload_requested = Signal(str)
     save_settings_requested = Signal()
@@ -1065,9 +1226,10 @@ class SettingsWindow(QWidget):
             target_label = directory.target_collection or "(target collection required)"
             recursive_label = "recursive" if directory.recursive else "top-level only"
             cleanup_label = _describe_post_upload_policy(directory)
+            regex_label = _describe_regex_filter(directory)
             label = (
                 f"{directory.source_directory} -> {target_label} "
-                f"({recursive_label}, {cleanup_label})"
+                f"({recursive_label}, {cleanup_label}, {regex_label})"
             )
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, directory.source_directory)
@@ -1075,7 +1237,8 @@ class SettingsWindow(QWidget):
                 f"Source directory: {directory.source_directory}\n"
                 f"Target collection: {target_label}\n"
                 f"Recursive monitoring: {'On' if directory.recursive else 'Off'}\n"
-                f"Post-upload action: {cleanup_label}"
+                f"Post-upload action: {cleanup_label}\n"
+                f"Regex filter: {regex_label}"
             )
             if directory.source_directory in invalid_directories:
                 item.setForeground(QColor("#b42318"))
@@ -1083,7 +1246,8 @@ class SettingsWindow(QWidget):
                     "Directory does not currently exist and is not being watched.\n"
                     f"Target collection: {target_label}\n"
                     f"Recursive monitoring: {'On' if directory.recursive else 'Off'}\n"
-                    f"Post-upload action: {cleanup_label}"
+                    f"Post-upload action: {cleanup_label}\n"
+                    f"Regex filter: {regex_label}"
                 )
             self.directory_list.addItem(item)
         self._update_remove_button_state()
@@ -1183,13 +1347,7 @@ class SettingsWindow(QWidget):
             return
 
         directory = dialog.get_directory()
-        self.add_folder_requested.emit(
-            directory.source_directory,
-            directory.target_collection,
-            directory.recursive,
-            directory.post_upload_action,
-            directory.post_upload_destination,
-        )
+        self.add_folder_requested.emit(directory)
 
     def _emit_remove_selected(self, _checked: bool = False) -> None:
         """Emit the currently selected directory so the controller can remove it."""

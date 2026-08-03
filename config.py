@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Iterable
@@ -12,6 +13,8 @@ CONFIG_PATH = Path(__file__).resolve().with_name("app_state.json")
 IRODS_ENVIRONMENT_PATH = Path(__file__).resolve().with_name("irods_environment.json")
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"keep", "recycle", "delete", "move"})
+DEFAULT_REGEX_FILTER_MODE = "disabled"
+REGEX_FILTER_MODES = frozenset({"allow", "deny", "disabled"})
 
 
 @dataclass(slots=True)
@@ -34,6 +37,14 @@ class RetryConfig:
 
 
 @dataclass(slots=True)
+class RegexFilterConfig:
+    """Store the optional regex-based allow/deny file filter for a folder."""
+
+    mode: str = DEFAULT_REGEX_FILTER_MODE
+    patterns: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class MonitoredDirectory:
     """Describe one monitored local folder and its destination iRODS collection."""
 
@@ -42,6 +53,7 @@ class MonitoredDirectory:
     recursive: bool = True
     post_upload_action: str = DEFAULT_POST_UPLOAD_ACTION
     post_upload_destination: str = ""
+    regex_filter: RegexFilterConfig = field(default_factory=RegexFilterConfig)
 
 
 @dataclass(slots=True)
@@ -83,12 +95,72 @@ def normalize_post_upload_action(action: str) -> str:
     return normalized_action
 
 
-def normalize_post_upload_destination(path: str) -> str:
-    """Return a canonical cleanup destination path when one is provided."""
+def normalize_file_path(path: str) -> str:
+    """Return a canonical absolute filesystem path string when one is provided."""
+
     strpath = str(path)
     if not strpath.strip():
         return ""
-    return normalize_directory(strpath)
+    return str(Path(strpath).expanduser().resolve(strict=False))
+
+
+def normalize_regex_filter_mode(mode: str) -> str:
+    """Return a supported regex filter mode or fall back to disabled mode."""
+
+    normalized_mode = str(mode).strip().lower()
+    if normalized_mode not in REGEX_FILTER_MODES:
+        return DEFAULT_REGEX_FILTER_MODE
+    return normalized_mode
+
+
+def normalize_regex_filter(
+    regex_filter: RegexFilterConfig | dict[str, object] | None,
+) -> RegexFilterConfig:
+    """Return a normalized regex filter configuration from supported input shapes."""
+
+    if isinstance(regex_filter, RegexFilterConfig):
+        mode = regex_filter.mode
+        patterns = regex_filter.patterns
+    elif isinstance(regex_filter, dict):
+        mode = str(regex_filter.get("mode", DEFAULT_REGEX_FILTER_MODE))
+        patterns = regex_filter.get("patterns", [])
+    else:
+        mode = DEFAULT_REGEX_FILTER_MODE
+        patterns = []
+
+    raw_mode = str(mode).strip().lower()
+    normalized_mode = normalize_regex_filter_mode(mode)
+    normalized_patterns = _normalize_regex_patterns(patterns)
+    if normalized_mode != raw_mode or normalized_patterns is None:
+        return RegexFilterConfig()
+    if normalized_mode != "disabled" and not normalized_patterns:
+        return RegexFilterConfig()
+
+    return RegexFilterConfig(mode=normalized_mode, patterns=normalized_patterns)
+
+
+def _normalize_regex_patterns(patterns: object) -> list[str] | None:
+    """Return cleaned regex patterns or ``None`` when the input is malformed."""
+
+    if not isinstance(patterns, list):
+        return None
+
+    normalized_patterns: list[str] = []
+    for raw_pattern in patterns:
+        if not isinstance(raw_pattern, str):
+            return None
+
+        pattern = raw_pattern.strip()
+        if not pattern:
+            continue
+
+        try:
+            re.compile(pattern)
+        except re.error:
+            return None
+        normalized_patterns.append(pattern)
+
+    return normalized_patterns
 
 
 def normalize_monitored_directories(
@@ -175,6 +247,7 @@ def _normalize_monitored_directory(
         recursive = directory.recursive
         post_upload_action = directory.post_upload_action
         post_upload_destination = directory.post_upload_destination
+        regex_filter = directory.regex_filter
     elif isinstance(directory, dict):
         source_directory = str(directory.get("source_directory", "")).strip()
         target_collection = str(directory.get("target_collection", "")).strip()
@@ -183,6 +256,7 @@ def _normalize_monitored_directory(
             directory.get("post_upload_action", DEFAULT_POST_UPLOAD_ACTION)
         )
         post_upload_destination = str(directory.get("post_upload_destination", ""))
+        regex_filter = directory.get("regex_filter")
     else:
         return None
 
@@ -194,7 +268,7 @@ def _normalize_monitored_directory(
         normalized_target = normalize_irods_collection(target_collection)
 
     normalized_action = normalize_post_upload_action(post_upload_action)
-    normalized_destination = normalize_post_upload_destination(post_upload_destination)
+    normalized_destination = normalize_file_path(post_upload_destination)
     if normalized_action != "move":
         normalized_destination = ""
     elif not normalized_destination:
@@ -206,9 +280,8 @@ def _normalize_monitored_directory(
         recursive=recursive,
         post_upload_action=normalized_action,
         post_upload_destination=normalized_destination,
+        regex_filter=normalize_regex_filter(regex_filter),
     )
-
-
 def normalize_irods_collection(path: str) -> str:
     """Return a stable absolute iRODS collection path suitable for uploads."""
 
@@ -316,6 +389,10 @@ class ConfigStore:
                     "recursive": directory.recursive,
                     "post_upload_action": directory.post_upload_action,
                     "post_upload_destination": directory.post_upload_destination,
+                    "regex_filter": {
+                        "mode": directory.regex_filter.mode,
+                        "patterns": directory.regex_filter.patterns,
+                    },
                 }
                 for directory in normalize_monitored_directories(config.monitored_directories)
             ],

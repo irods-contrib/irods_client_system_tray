@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from pathlib import Path
 from threading import Thread
 
 from PySide6.QtCore import QObject, QRectF, Qt, Signal, QThread, QTimer
 from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QFileDialog, QMenu, QSystemTrayIcon, QStyle
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QStyle
 
 LOGO_PATH = Path(__file__).resolve().with_name("irods_logo.svg")
 
@@ -21,10 +22,10 @@ from config import (
     build_retry_settings_user_key,
     normalize_directory,
     normalize_retry_config,
+    normalize_file_path,
     normalize_irods_zone_name,
     normalize_monitored_directories,
     normalize_post_upload_action,
-    normalize_post_upload_destination,
     normalize_target_collection_for_zone,
     rezone_target_collection,
 )
@@ -48,7 +49,6 @@ class UploadJob:
     last_error: str = ""
     status: str = "queued"
     retry_timer: QTimer | None = field(default=None, repr=False, compare=False)
-
 
 class TrayController(QObject):
     """Own the long-lived application state and system tray interactions.
@@ -189,25 +189,26 @@ class TrayController(QObject):
                 self._login_dialog = None
             login_dialog.deleteLater()
 
-    def add_directory(
-        self,
-        source_directory: str,
-        target_collection: str,
-        recursive: bool,
-        post_upload_action: str,
-        post_upload_destination: str,
-    ) -> None:
+    def add_directory(self, directory: object) -> None:
         """Normalize and persist a new monitored directory from the UI."""
 
-        normalized_source = normalize_directory(source_directory)
+        if not isinstance(directory, MonitoredDirectory):
+            self.window.set_status_message("Failed to add folder: invalid folder configuration.", is_error=True)
+            return
+
+        normalized_directories = normalize_monitored_directories([directory])
+        if not normalized_directories:
+            self.window.set_status_message("Select a source directory to monitor.", is_error=True)
+            return
+
+        normalized_directory = normalized_directories[0]
+        normalized_source = normalized_directory.source_directory
         normalized_target = normalize_target_collection_for_zone(
-            target_collection,
+            normalized_directory.target_collection,
             self.environment.irods_zone_name,
         )
-        normalized_action = normalize_post_upload_action(post_upload_action)
-        normalized_destination = normalize_post_upload_destination(post_upload_destination)
-        if normalized_action != "move":
-            normalized_destination = ""
+        normalized_action = normalize_post_upload_action(normalized_directory.post_upload_action)
+        normalized_destination = normalize_file_path(normalized_directory.post_upload_destination)
         if any(
             directory.source_directory == normalized_source
             for directory in self.config.monitored_directories
@@ -241,7 +242,7 @@ class TrayController(QObject):
                     is_error=True,
                 )
                 return
-            if recursive and watched_path.is_relative_to(source_path):
+            if normalized_directory.recursive and watched_path.is_relative_to(source_path):
                 self.window.set_status_message(
                     f"Recursive watch {normalized_source} would overlap existing folder {directory.source_directory}",
                     is_error=True,
@@ -252,9 +253,10 @@ class TrayController(QObject):
             MonitoredDirectory(
                 source_directory=normalized_source,
                 target_collection=normalized_target,
-                recursive=recursive,
+                recursive=normalized_directory.recursive,
                 post_upload_action=normalized_action,
                 post_upload_destination=normalized_destination,
+                regex_filter=normalized_directory.regex_filter,
             )
         )
         self._persist_and_sync()
@@ -647,6 +649,9 @@ class TrayController(QObject):
             )
             self.window.set_status_message(message, is_error=True)
             self.window.append_activity(f"warning: {message}")
+            return
+        if not self._should_upload_file(normalized_path, monitored_directory):
+            self.window.append_activity(f"regex filter skipped -> {normalized_path}")
             return
         if normalized_path in self._queued_uploads:
             return
@@ -1099,6 +1104,38 @@ class TrayController(QObject):
         if delay_seconds.is_integer():
             return f"{int(delay_seconds)}s"
         return f"{delay_seconds:.1f}s"
+    
+    def _should_upload_file(self, path: str, directory: MonitoredDirectory) -> bool:
+        """Apply the optional per-folder regex filter and decide whether to upload."""
+
+        regex_filter = directory.regex_filter
+        if regex_filter.mode == "disabled":
+            return True
+
+        patterns = [re.compile(pattern) for pattern in regex_filter.patterns]
+
+        candidate_path = Path(path).expanduser().resolve(strict=False)
+        monitored_root = Path(directory.source_directory).expanduser().resolve(strict=False)
+        match_candidates = {
+            str(candidate_path),
+            candidate_path.as_posix(),
+            candidate_path.name,
+        }
+        try:
+            relative_path = candidate_path.relative_to(monitored_root)
+        except ValueError:
+            relative_path = Path(candidate_path.name)
+        match_candidates.add(str(relative_path))
+        match_candidates.add(relative_path.as_posix())
+
+        matched = any(
+            pattern.search(candidate)
+            for pattern in patterns
+            for candidate in match_candidates
+        )
+        if regex_filter.mode == "allow":
+            return matched
+        return not matched
 
     def _find_post_upload_destination_conflict(
         self,

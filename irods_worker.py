@@ -12,9 +12,9 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 from config import (
     IRODSEnvironment,
+    normalize_file_path,
     normalize_irods_collection,
     normalize_post_upload_action,
-    normalize_post_upload_destination,
 )
 
 
@@ -80,7 +80,7 @@ class IRODSUploadWorker(QObject):
         normalized_monitored_root = str(monitored_directory)
         environment = self._copy_environment(self._environment)
         normalized_action = normalize_post_upload_action(post_upload_action)
-        normalized_destination = normalize_post_upload_destination(post_upload_destination)
+        normalized_destination = normalize_file_path(post_upload_destination)
         stage = "initializing upload"
 
         if self._is_cancelled(normalized_monitored_root):
