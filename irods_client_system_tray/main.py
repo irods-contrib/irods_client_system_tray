@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import signal
 import sys
-from pathlib import Path
+from importlib.resources import files
 from string import Template
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFontInfo, QGuiApplication, QPalette
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
-from tray import TrayController
+from .tray import TrayController
 
-APP_DIR = Path(__file__).resolve().parent
-THEME_TEMPLATE_PATH = APP_DIR / "theme.qss.template"
+THEME_TEMPLATE_PATH = files("irods_client_system_tray").joinpath("theme.qss.template")
 
 THEME_TOKENS = {
     "dark": {

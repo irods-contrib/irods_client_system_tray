@@ -28,7 +28,7 @@ import pytest
 # a real display, so this keeps them runnable headlessly.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from config import IRODSEnvironment
+from irods_client_system_tray.config import IRODSEnvironment
 
 # Imported directly by the gated upload test, so it stays a module-level constant.
 IRODS_TEST_COLLECTION = os.environ.get("IRODS_TEST_COLLECTION", "/tempZone/home/alice")

@@ -14,10 +14,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import irods_worker
+from irods_client_system_tray import irods_worker
 from conftest import IRODS_TEST_COLLECTION, requires_irods_server
-from config import IRODSEnvironment
-from irods_worker import IRODSUploadWorker
+from irods_client_system_tray.config import IRODSEnvironment
+from irods_client_system_tray.irods_worker import IRODSUploadWorker
 
 
 def test_subfolder_structure_is_preserved_in_irods(tmp_path):

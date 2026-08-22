@@ -10,7 +10,7 @@ from threading import Lock
 
 from PySide6.QtCore import QObject, Signal, Slot
 
-from config import (
+from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     IRODSEnvironment,
     normalize_file_path,

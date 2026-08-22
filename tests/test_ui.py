@@ -13,8 +13,18 @@ import threading
 
 import pytest
 
-from config import DEFAULT_POST_UPLOAD_ACTION, IRODSEnvironment, MonitoredDirectory
-from ui import AddDirectoryDialog, LoginDialog, LoginWorker, SettingsWindow, ZoneRootLineEdit
+from irods_client_system_tray.config import (
+    DEFAULT_POST_UPLOAD_ACTION,
+    IRODSEnvironment,
+    MonitoredDirectory,
+)
+from irods_client_system_tray.ui import (
+    AddDirectoryDialog,
+    LoginDialog,
+    LoginWorker,
+    SettingsWindow,
+    ZoneRootLineEdit,
+)
 
 pytestmark = pytest.mark.usefixtures("qapp")
 

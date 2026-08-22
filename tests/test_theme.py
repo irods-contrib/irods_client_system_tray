@@ -12,7 +12,7 @@ from string import Template
 
 import pytest
 
-from main import THEME_TEMPLATE_PATH, THEME_TOKENS, _font_size_tokens_from_system_font
+from irods_client_system_tray.main import THEME_TEMPLATE_PATH, THEME_TOKENS, _font_size_tokens_from_system_font
 
 THEMES = sorted(THEME_TOKENS)
 

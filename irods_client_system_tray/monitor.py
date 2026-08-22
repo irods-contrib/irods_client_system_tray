@@ -9,7 +9,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import ObservedWatch
 
-from config import MonitoredDirectory
+from .config import MonitoredDirectory
 
 
 class EventBridge(QObject):

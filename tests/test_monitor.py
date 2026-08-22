@@ -17,8 +17,8 @@ from watchdog.events import (
     FileMovedEvent,
 )
 
-from config import MonitoredDirectory
-from monitor import EventBridge, IngestionEventHandler, MonitorManager
+from irods_client_system_tray.config import MonitoredDirectory
+from irods_client_system_tray.monitor import EventBridge, IngestionEventHandler, MonitorManager
 
 
 def _manager_watching(*paths: Path) -> tuple[MonitorManager, list[tuple]]:

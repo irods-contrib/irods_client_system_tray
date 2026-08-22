@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config import (
+from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     IRODSEnvironment,
     MonitoredDirectory,

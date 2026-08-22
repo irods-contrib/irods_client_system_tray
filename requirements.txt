@@ -1,6 +1,0 @@
-PySide6 >=6.7
-watchdog >=4.0
-python-irodsclient >=2.0, <4.0
-win11toast >=0.36; sys_platform == "win32"
-send2trash >=1.8
-pytest >=8.0

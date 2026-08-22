@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from config import (
+import irods_client_system_tray.config as config_module
+from irods_client_system_tray.config import (
     DEFAULT_POST_UPLOAD_ACTION,
     AppConfig,
     ConfigStore,
@@ -18,6 +19,27 @@ from config import (
     normalize_target_collection_for_zone,
     rezone_target_collection,
 )
+
+
+def test_default_config_dir_uses_consistent_app_name(monkeypatch, tmp_path):
+    appdata = tmp_path / "AppData" / "Roaming"
+    xdg_config = tmp_path / "xdg"
+    home = tmp_path / "home"
+
+    monkeypatch.setattr(config_module.sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", str(appdata))
+    assert config_module._default_config_dir() == appdata / "irods-client-system-tray"
+
+    monkeypatch.setattr(config_module.sys, "platform", "darwin")
+    monkeypatch.setattr(config_module.Path, "home", lambda: home)
+    assert (
+        config_module._default_config_dir()
+        == home / "Library" / "Application Support" / "irods-client-system-tray"
+    )
+
+    monkeypatch.setattr(config_module.sys, "platform", "linux")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_config))
+    assert config_module._default_config_dir() == xdg_config / "irods-client-system-tray"
 
 
 def test_typed_paths_are_normalized_before_use():

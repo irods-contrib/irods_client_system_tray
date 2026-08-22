@@ -3,14 +3,32 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 
-CONFIG_PATH = Path(__file__).resolve().with_name("app_state.json")
-IRODS_ENVIRONMENT_PATH = Path(__file__).resolve().with_name("irods_environment.json")
+def _default_config_dir() -> Path:
+    """Return the per-user config directory for persisted application state."""
+
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        base_dir = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base_dir / "irods-client-system-tray"
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "irods-client-system-tray"
+
+    base_dir = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base_dir / "irods-client-system-tray"
+
+
+APP_CONFIG_DIR = _default_config_dir()
+CONFIG_PATH = APP_CONFIG_DIR / "app_state.json"
+IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"keep", "recycle", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"

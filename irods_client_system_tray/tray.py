@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib.resources import files
 import re
 from pathlib import Path
 from threading import Thread
 
-from PySide6.QtCore import QObject, QRectF, Qt, Signal, QThread, QTimer
+from PySide6.QtCore import QByteArray, QObject, QRectF, Qt, Signal, QThread, QTimer
 from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QStyle
 
-LOGO_PATH = Path(__file__).resolve().with_name("irods_logo.svg")
+LOGO_RESOURCE = files("irods_client_system_tray").joinpath("irods_logo.svg")
 
-from config import (
+from .config import (
     ConfigStore,
     IRODSEnvironment,
     IRODSEnvironmentStore,
@@ -29,9 +30,9 @@ from config import (
     normalize_target_collection_for_zone,
     rezone_target_collection,
 )
-from irods_worker import IRODSUploadWorker
-from monitor import MonitorManager
-from ui import LoginDialog, SettingsWindow
+from .irods_worker import IRODSUploadWorker
+from .monitor import MonitorManager
+from .ui import LoginDialog, SettingsWindow
 
 
 @dataclass(slots=True)
@@ -446,7 +447,7 @@ class TrayController(QObject):
     def _build_icon(self) -> QPixmap:
         """Rasterize the iRODS logo SVG."""
 
-        renderer = QSvgRenderer(str(LOGO_PATH))
+        renderer = QSvgRenderer(QByteArray(LOGO_RESOURCE.read_bytes()))
         size = renderer.defaultSize().scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio)
         pixmap = QPixmap(32, 32)
         pixmap.fill(Qt.GlobalColor.transparent)

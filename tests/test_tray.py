@@ -5,8 +5,8 @@ stores, drives the folder monitor, feeds the upload worker, and updates the sett
 window.
 
 The ``controller`` fixture points both stores at ``tmp_path``. A controller built
-with its defaults writes ``app_state.json`` and ``irods_environment.json`` beside the
-source files. No iRODS connection is made: the upload worker runs on its own thread
+with its defaults writes ``app_state.json`` and ``irods_environment.json`` under the
+user config directory. No iRODS connection is made: the upload worker runs on its own thread
 but only ever receives queued_uploads paths.
 """
 
@@ -16,8 +16,8 @@ import json
 
 import pytest
 
-import config
-from config import IRODSEnvironment, MonitoredDirectory
+from irods_client_system_tray import config
+from irods_client_system_tray.config import IRODSEnvironment, MonitoredDirectory
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -33,7 +33,7 @@ def controller(tmp_path, monkeypatch, qapp):
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "app_state.json")
     monkeypatch.setattr(config, "IRODS_ENVIRONMENT_PATH", tmp_path / "irods_environment.json")
 
-    from tray import TrayController
+    from irods_client_system_tray.tray import TrayController
 
     tray_controller = TrayController(qapp)
 

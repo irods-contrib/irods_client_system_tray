@@ -1,7 +1,7 @@
-irods_environment.json
 __pycache__/
 *.py[cod]
-app_state.json
 .DS_Store
 .coverage
 htmlcov/
+build/
+*.egg-info/
