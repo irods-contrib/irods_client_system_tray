@@ -2,7 +2,6 @@ irods_environment.json
 __pycache__/
 *.py[cod]
 app_state.json
-irods_environment.json
 .DS_Store
 .coverage
 htmlcov/
