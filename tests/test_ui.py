@@ -228,7 +228,7 @@ def test_activity_log_is_newest_first_and_capped(settings_window):
         settings_window.append_activity(f"event {index}")
 
     assert settings_window.activity_list.count() == 50
-    assert settings_window.activity_list.item(0).text() == "event 54"
+    assert " - event 54" in settings_window.activity_list.item(0).text()
 
 
 def test_settings_form_never_shows_a_password(settings_window):
