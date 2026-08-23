@@ -117,6 +117,19 @@ def _apply_theme(app: QApplication) -> None:
     app.setStyleSheet(Template(THEME_TEMPLATE_PATH.read_text()).substitute(substitutions))
 
 
+def _hide_from_macos_dock() -> None:
+    """Run command-line launches as a menu-bar accessory app on macOS."""
+
+    if sys.platform != "darwin":
+        return
+
+    from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+
+    NSApplication.sharedApplication().setActivationPolicy_(
+        NSApplicationActivationPolicyAccessory
+    )
+
+
 def main() -> int:
     """Create the Qt application, validate tray support, and start the event loop.
 
@@ -125,6 +138,7 @@ def main() -> int:
     """
 
     app = QApplication(sys.argv)
+    _hide_from_macos_dock()
     app.setApplicationName("iRODS System Tray")
     app.setOrganizationName("iRODS")
     app.setStyle("Fusion")

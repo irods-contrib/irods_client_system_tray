@@ -18,6 +18,7 @@ dependencies = [
     "pyside6>=6.7",
     "pytest>=8.0",
     "pytest-cov>=7.0",
+    "pyobjc-framework-Cocoa>=10.0 ; sys_platform == 'darwin'",
     "python-irodsclient>=3.0",
     "send2trash>=1.8",
     "watchdog>=4.0",
