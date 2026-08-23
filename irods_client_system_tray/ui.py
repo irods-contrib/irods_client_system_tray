@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import re
 import socket
-from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
@@ -33,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .activity_log import ActivityLog
 from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     IRODSEnvironment,
@@ -994,10 +994,11 @@ class SettingsWindow(QWidget):
     retry_failed_upload_requested = Signal(str)
     save_settings_requested = Signal()
 
-    def __init__(self) -> None:
+    def __init__(self, activity_log: ActivityLog | None = None) -> None:
         """Construct the minimalist settings UI used by the tray application."""
 
         super().__init__()
+        self.activity_log = activity_log or ActivityLog()
         self.setObjectName("settingsWindow")
         self.setWindowTitle("Ingestion Monitor")
         self.resize(640, 460)
@@ -1179,6 +1180,7 @@ class SettingsWindow(QWidget):
 
         self.activity_list = QListWidget()
         self.activity_list.setMaximumHeight(140)
+        self.load_activity()
 
         overview_layout.addWidget(session_card)
         overview_layout.addWidget(directory_card, 1)
@@ -1324,15 +1326,17 @@ class SettingsWindow(QWidget):
         _set_label_error_state(self.status_label, is_error)
 
     def append_activity(self, message: str) -> None:
-        """Prepend a new activity message and keep only a short rolling history."""
+        """Append a new activity message to the log and refresh the visible history."""
 
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace(
-            "+00:00", "Z"
-        )
-        timestamped_message = f"{timestamp} - {message}"
-        self.activity_list.insertItem(0, timestamped_message)
-        while self.activity_list.count() > 50:
-            self.activity_list.takeItem(self.activity_list.count() - 1)
+        self.activity_log.append(message)
+        self.load_activity()
+
+    def load_activity(self) -> None:
+        """Load recent activity from the persistent log file into the GUI."""
+
+        self.activity_list.clear()
+        for entry in self.activity_log.read_recent():
+            self.activity_list.addItem(entry)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Hide the window instead of quitting so tray monitoring keeps running."""

@@ -29,6 +29,7 @@ def _default_config_dir() -> Path:
 APP_CONFIG_DIR = _default_config_dir()
 CONFIG_PATH = APP_CONFIG_DIR / "app_state.json"
 IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
+ACTIVITY_LOG_PATH = APP_CONFIG_DIR / "activity.log"
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"keep", "recycle", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"
