@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import signal
+import subprocess
 import sys
 from importlib.resources import files
 from string import Template
@@ -13,6 +15,8 @@ from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from .tray import TrayController
 
+BACKGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_BACKGROUND"
+FOREGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND"
 THEME_TEMPLATE_PATH = files("irods_client_system_tray").joinpath("theme.qss.template")
 
 THEME_TOKENS = {
@@ -130,6 +134,53 @@ def _hide_from_macos_dock() -> None:
     )
 
 
+def _parse_launcher_args(argv: list[str]) -> tuple[bool, list[str]]:
+    """Separate launcher options from arguments that should be passed to Qt."""
+
+    foreground = False
+    qt_args = [argv[0]]
+    for arg in argv[1:]:
+        if arg in ("-f", "--foreground"):
+            foreground = True
+            continue
+        qt_args.append(arg)
+
+    return foreground, qt_args
+
+
+def _run_in_background_if_needed(foreground: bool, qt_args: list[str]) -> bool:
+    """Start the tray app detached and let the command-line launcher exit."""
+
+    if (
+        foreground
+        or os.environ.get(BACKGROUND_ENV_VAR)
+        or os.environ.get(FOREGROUND_ENV_VAR)
+    ):
+        return False
+
+    env = os.environ.copy()
+    env[BACKGROUND_ENV_VAR] = "1"
+    popen_kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "env": env,
+    }
+
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    subprocess.Popen(
+        [sys.executable, "-m", "irods_client_system_tray", *qt_args[1:]],
+        **popen_kwargs,
+    )
+    return True
+
+
 def main() -> int:
     """Create the Qt application, validate tray support, and start the event loop.
 
@@ -137,7 +188,12 @@ def main() -> int:
     window, so the entry point only needs to bootstrap Qt and hand off control.
     """
 
-    app = QApplication(sys.argv)
+    foreground, qt_args = _parse_launcher_args(sys.argv)
+
+    if _run_in_background_if_needed(foreground, qt_args):
+        return 0
+
+    app = QApplication(qt_args)
     _hide_from_macos_dock()
     app.setApplicationName("iRODS System Tray")
     app.setOrganizationName("iRODS")

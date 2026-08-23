@@ -103,7 +103,89 @@ def test_main_hides_from_macos_dock_after_creating_qapplication(monkeypatch):
     monkeypatch.setattr(main, "TrayController", TrayController)
     monkeypatch.setattr(main, "_apply_theme", lambda _app: None)
     monkeypatch.setattr(main, "_hide_from_macos_dock", hide_from_macos_dock)
+    monkeypatch.setattr(main, "_run_in_background_if_needed", lambda *_args: False)
     monkeypatch.setattr(main.signal, "signal", lambda *_args: None)
 
     assert main.main() == 0
     assert events == ["qapplication", "hide_dock"]
+
+
+def test_parse_launcher_args_removes_foreground_flag():
+    foreground, qt_args = main._parse_launcher_args(
+        ["irods-client-system-tray", "--foreground", "-platform", "offscreen"]
+    )
+
+    assert foreground is True
+    assert qt_args == ["irods-client-system-tray", "-platform", "offscreen"]
+
+
+def test_parse_launcher_args_accepts_short_foreground_flag():
+    foreground, qt_args = main._parse_launcher_args(["irods-client-system-tray", "-f"])
+
+    assert foreground is True
+    assert qt_args == ["irods-client-system-tray"]
+
+
+def test_run_in_background_starts_detached_child(monkeypatch):
+    launched = []
+
+    def popen(command, **kwargs):
+        launched.append((command, kwargs))
+
+    monkeypatch.delenv(main.BACKGROUND_ENV_VAR, raising=False)
+    monkeypatch.delenv(main.FOREGROUND_ENV_VAR, raising=False)
+    monkeypatch.setattr(main.sys, "platform", "linux")
+    monkeypatch.setattr(main.sys, "executable", "/usr/bin/python3")
+    monkeypatch.setattr(main.subprocess, "Popen", popen)
+
+    assert main._run_in_background_if_needed(
+        False,
+        ["irods-client-system-tray", "-platform", "offscreen"],
+    )
+
+    command, kwargs = launched[0]
+    assert command == [
+        "/usr/bin/python3",
+        "-m",
+        "irods_client_system_tray",
+        "-platform",
+        "offscreen",
+    ]
+    assert kwargs["env"][main.BACKGROUND_ENV_VAR] == "1"
+    assert kwargs["start_new_session"] is True
+    assert kwargs["stdin"] == main.subprocess.DEVNULL
+    assert kwargs["stdout"] == main.subprocess.DEVNULL
+    assert kwargs["stderr"] == main.subprocess.DEVNULL
+
+
+def test_run_in_background_skips_inside_detached_child(monkeypatch):
+    def popen(_command, **_kwargs):
+        raise AssertionError("child process should not be relaunched")
+
+    monkeypatch.setenv(main.BACKGROUND_ENV_VAR, "1")
+    monkeypatch.delenv(main.FOREGROUND_ENV_VAR, raising=False)
+    monkeypatch.setattr(main.subprocess, "Popen", popen)
+
+    assert not main._run_in_background_if_needed(False, ["irods-client-system-tray"])
+
+
+def test_run_in_background_skips_when_foreground_is_requested(monkeypatch):
+    def popen(_command, **_kwargs):
+        raise AssertionError("foreground process should not be relaunched")
+
+    monkeypatch.delenv(main.BACKGROUND_ENV_VAR, raising=False)
+    monkeypatch.setenv(main.FOREGROUND_ENV_VAR, "1")
+    monkeypatch.setattr(main.subprocess, "Popen", popen)
+
+    assert not main._run_in_background_if_needed(False, ["irods-client-system-tray"])
+
+
+def test_run_in_background_skips_when_foreground_flag_is_used(monkeypatch):
+    def popen(_command, **_kwargs):
+        raise AssertionError("foreground process should not be relaunched")
+
+    monkeypatch.delenv(main.BACKGROUND_ENV_VAR, raising=False)
+    monkeypatch.delenv(main.FOREGROUND_ENV_VAR, raising=False)
+    monkeypatch.setattr(main.subprocess, "Popen", popen)
+
+    assert not main._run_in_background_if_needed(True, ["irods-client-system-tray"])

@@ -44,6 +44,10 @@ Run the application:
 irods-client-system-tray
 ```
 
+The command starts the tray app in the background and returns the shell prompt.
+Pass `--foreground` or `-f`, or set `IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND=1`,
+to keep it attached to the terminal.
+
 For a source checkout, this also works:
 
 ```bash
