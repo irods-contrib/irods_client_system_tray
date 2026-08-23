@@ -5,7 +5,7 @@ from __future__ import annotations
 from irods_client_system_tray.activity_log import ActivityLog
 
 
-def test_activity_log_reads_recent_entries_newest_first(tmp_path):
+def test_activity_log_reads_recent_entries_oldest_first(tmp_path):
     log = ActivityLog(tmp_path / "activity.log")
     try:
         log.append("older event")
@@ -15,8 +15,8 @@ def test_activity_log_reads_recent_entries_newest_first(tmp_path):
     finally:
         log.close()
 
-    assert " - newer event" in recent[0]
-    assert " - older event" in recent[1]
+    assert " - older event" in recent[0]
+    assert " - newer event" in recent[1]
 
 
 def test_activity_log_reads_across_rotated_files(tmp_path):
@@ -35,5 +35,5 @@ def test_activity_log_reads_across_rotated_files(tmp_path):
         log.close()
 
     assert (tmp_path / "activity.log.1").exists()
-    assert " - event 19 " in recent[0]
+    assert " - event 19 " in recent[-1]
     assert len(recent) <= 10

@@ -239,14 +239,14 @@ def test_setting_the_toggle_does_not_emit_a_change(
     assert toggles == []
 
 
-def test_activity_log_is_persisted_newest_first_and_capped(settings_window):
+def test_activity_log_is_persisted_newest_last_and_capped(settings_window):
     # Checks recent activity is written to disk and the list cannot grow without
     # limit during a long monitoring session.
     for index in range(55):
         settings_window.append_activity(f"event {index}")
 
     assert settings_window.activity_list.count() == 50
-    assert " - event 54" in settings_window.activity_list.item(0).text()
+    assert " - event 54" in settings_window.activity_list.item(49).text()
     assert " - event 54" in settings_window.activity_log.path.read_text(encoding="utf-8")
 
 
@@ -259,8 +259,8 @@ def test_activity_log_loads_existing_entries(activity_log):
     window = SettingsWindow(activity_log)
 
     assert window.activity_list.count() == 2
-    assert " - newer event" in window.activity_list.item(0).text()
-    assert " - older event" in window.activity_list.item(1).text()
+    assert " - older event" in window.activity_list.item(0).text()
+    assert " - newer event" in window.activity_list.item(1).text()
 
 
 def test_settings_form_never_shows_a_password(settings_window):

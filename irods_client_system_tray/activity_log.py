@@ -54,7 +54,7 @@ class ActivityLog:
         self._logger.info(str(message).replace("\n", " ").replace("\r", " "))
 
     def read_recent(self) -> list[str]:
-        """Return recent activity entries newest-first from the current log file."""
+        """Return recent activity entries oldest-first for display."""
 
         lines: list[str] = []
         for path in self._ordered_log_paths():
@@ -64,7 +64,7 @@ class ActivityLog:
                 continue
 
         entries = [line for line in lines if line.strip()]
-        return list(reversed(entries[-self.visible_entry_count :]))
+        return entries[-self.visible_entry_count :]
 
     def _ordered_log_paths(self) -> list[Path]:
         """Return rotated log files oldest-first, followed by the current log."""
