@@ -68,3 +68,9 @@ The tests stub the iRODS session and need no server. Tests that upload to a live
 are skipped unless `IRODS_TEST_LIVE_SERVER` is set; export that along with the other
 `IRODS_TEST_*` variables listed in `tests/conftest.py` to run them against a real
 deployment.
+
+Run the tests with coverage:
+
+```bash
+pytest --cov=irods_client_system_tray
+```

@@ -40,6 +40,6 @@ jobs:
           libxcb-xfixes0 \
           libxcb-xinerama0
         pip install ./
-    - name: Run pytest tests
+    - name: Run pytest tests with coverage
       run: |
-        python -m pytest tests/
+        pytest --cov=irods_client_system_tray
