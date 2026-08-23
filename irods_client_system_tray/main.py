@@ -17,6 +17,7 @@ from .tray import TrayController
 
 BACKGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_BACKGROUND"
 FOREGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND"
+HELP_OPTIONS = ("-h", "--help")
 THEME_TEMPLATE_PATH = files("irods_client_system_tray").joinpath("theme.qss.template")
 
 THEME_TOKENS = {
@@ -134,18 +135,41 @@ def _hide_from_macos_dock() -> None:
     )
 
 
-def _parse_launcher_args(argv: list[str]) -> tuple[bool, list[str]]:
+def _usage(program_name: str) -> str:
+    program_name = os.path.basename(program_name)
+
+    return f"""Usage: {program_name} [OPTIONS] [QT_OPTIONS]
+
+Start the iRODS Client System Tray application.
+
+By default, the command starts the tray app in the background and returns the
+shell prompt. Any unrecognized options are passed through to Qt.
+
+Options:
+  -f, --foreground  Keep the app attached to the terminal.
+  -h, --help        Show this help message and exit.
+
+Environment:
+  {FOREGROUND_ENV_VAR}=1  Keep the app attached to the terminal.
+"""
+
+
+def _parse_launcher_args(argv: list[str]) -> tuple[bool, bool, list[str]]:
     """Separate launcher options from arguments that should be passed to Qt."""
 
     foreground = False
+    help_requested = False
     qt_args = [argv[0]]
     for arg in argv[1:]:
         if arg in ("-f", "--foreground"):
             foreground = True
             continue
+        if arg in HELP_OPTIONS:
+            help_requested = True
+            continue
         qt_args.append(arg)
 
-    return foreground, qt_args
+    return foreground, help_requested, qt_args
 
 
 def _run_in_background_if_needed(foreground: bool, qt_args: list[str]) -> bool:
@@ -188,7 +212,11 @@ def main() -> int:
     window, so the entry point only needs to bootstrap Qt and hand off control.
     """
 
-    foreground, qt_args = _parse_launcher_args(sys.argv)
+    foreground, help_requested, qt_args = _parse_launcher_args(sys.argv)
+
+    if help_requested:
+        print(_usage(qt_args[0]))
+        return 0
 
     if _run_in_background_if_needed(foreground, qt_args):
         return 0

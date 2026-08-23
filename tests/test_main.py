@@ -111,19 +111,65 @@ def test_main_hides_from_macos_dock_after_creating_qapplication(monkeypatch):
 
 
 def test_parse_launcher_args_removes_foreground_flag():
-    foreground, qt_args = main._parse_launcher_args(
+    foreground, help_requested, qt_args = main._parse_launcher_args(
         ["irods-client-system-tray", "--foreground", "-platform", "offscreen"]
     )
 
     assert foreground is True
+    assert help_requested is False
     assert qt_args == ["irods-client-system-tray", "-platform", "offscreen"]
 
 
 def test_parse_launcher_args_accepts_short_foreground_flag():
-    foreground, qt_args = main._parse_launcher_args(["irods-client-system-tray", "-f"])
+    foreground, help_requested, qt_args = main._parse_launcher_args(
+        ["irods-client-system-tray", "-f"]
+    )
 
     assert foreground is True
+    assert help_requested is False
     assert qt_args == ["irods-client-system-tray"]
+
+
+def test_parse_launcher_args_removes_help_flag():
+    foreground, help_requested, qt_args = main._parse_launcher_args(
+        ["irods-client-system-tray", "--help", "-platform", "offscreen"]
+    )
+
+    assert foreground is False
+    assert help_requested is True
+    assert qt_args == ["irods-client-system-tray", "-platform", "offscreen"]
+
+
+def test_parse_launcher_args_accepts_short_help_flag():
+    foreground, help_requested, qt_args = main._parse_launcher_args(
+        ["irods-client-system-tray", "-h"]
+    )
+
+    assert foreground is False
+    assert help_requested is True
+    assert qt_args == ["irods-client-system-tray"]
+
+
+def test_main_prints_help_without_starting_app(monkeypatch, capsys):
+    def run_in_background(_foreground, _qt_args):
+        raise AssertionError("help should not start the app")
+
+    monkeypatch.setattr(
+        main.sys,
+        "argv",
+        [
+            "/venv/bin/irods-client-system-tray",
+            "--help",
+        ],
+    )
+    monkeypatch.setattr(main, "_run_in_background_if_needed", run_in_background)
+
+    assert main.main() == 0
+
+    output = capsys.readouterr().out
+    assert "Usage: irods-client-system-tray [OPTIONS] [QT_OPTIONS]" in output
+    assert "-f, --foreground" in output
+    assert "-h, --help" in output
 
 
 def test_run_in_background_starts_detached_child(monkeypatch):
