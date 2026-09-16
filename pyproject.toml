@@ -8,6 +8,7 @@ description = "iRODS Ingest from the System Tray"
 requires-python = ">=3.10"
 readme = "README.md"
 license = "BSD-3-Clause"
+license-files = [ "LICENSE" ]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: MacOS",
