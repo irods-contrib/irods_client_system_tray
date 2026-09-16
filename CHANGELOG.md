@@ -11,6 +11,10 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 > - MINOR version when you add functionality in a backward compatible manner
 > - PATCH version when you make backward compatible bug fixes
 
+## [0.1.1] - 2026-09-16
+
+Updated repository links in pyproject.toml.  No code changes.
+
 ## [0.1.0] - 2026-08-23
 
 This is the first release of the iRODS Client System Tray application.
