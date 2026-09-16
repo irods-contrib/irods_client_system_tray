@@ -8,6 +8,7 @@ description = "iRODS Ingest from the System Tray"
 requires-python = ">=3.10"
 readme = "README.md"
 license = "BSD-3-Clause"
+license-files = [ "LICENSE" ]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: MacOS",
@@ -29,8 +30,8 @@ dependencies = [
 irods-client-system-tray = "irods_client_system_tray.main:main"
 
 [project.urls]
-Repository = "https://github.com/irods/irods_client_system_tray"
-Issues = "https://github.com/irods/irods_client_system_tray/issues"
+Repository = "https://github.com/irods-contrib/irods_client_system_tray"
+Issues = "https://github.com/irods-contrib/irods_client_system_tray/issues"
 
 [build-system]
 requires = [
