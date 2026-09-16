@@ -1,6 +1,6 @@
 [project]
 name = "irods-client-system-tray"
-version = "0.1.0"
+version = "0.1.1"
 authors = [
   { name="iRODS Consortium", email="info@irods.org" },
 ]
@@ -29,8 +29,8 @@ dependencies = [
 irods-client-system-tray = "irods_client_system_tray.main:main"
 
 [project.urls]
-Repository = "https://github.com/irods/irods_client_system_tray"
-Issues = "https://github.com/irods/irods_client_system_tray/issues"
+Repository = "https://github.com/irods-contrib/irods_client_system_tray"
+Issues = "https://github.com/irods-contrib/irods_client_system_tray/issues"
 
 [build-system]
 requires = [
