@@ -430,7 +430,7 @@ def test_sign_in_activity_identifies_user_zone_and_server(controller):
     controller._complete_login(controller.environment)
 
     assert any(
-        "signed in as alice#tempZone to irods.example.org:1247" in entry
+        "logged into iRODS as alice#tempZone to irods.example.org:1247" in entry
         for entry in controller.window.activity_log.read_recent()
     )
 
@@ -597,6 +597,7 @@ def test_signing_out_locks_the_app_and_clears_the_queue(controller, queued_uploa
     assert controller._queued_uploads == {}
     assert not controller.open_settings_action.isVisible()
     assert controller.sign_in_action.isVisible()
+    assert any("logged out" in entry for entry in controller.window.activity_log.read_recent())
 
     # sign_out reopens the login dialog; close it so the fixture can tear down cleanly.
     if controller._login_dialog is not None:

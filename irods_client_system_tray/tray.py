@@ -356,7 +356,7 @@ class TrayController(QObject):
         self.upload_environment_cleared.emit()
         self.environment = self.irods_environment_store.load()
         self.window.set_irods_environment(self.environment)
-        self.window.append_activity("signed out")
+        self.window.append_activity("logged out")
         self._apply_locked_state()
         self.prompt_login(show_window_on_success=True)
 
@@ -590,7 +590,7 @@ class TrayController(QObject):
         self.window.set_irods_environment(environment)
         self.window.set_retry_config(self.config.retry)
         self.window.append_activity(
-            f"signed in as {environment.irods_user_name}#{environment.irods_zone_name} "
+            f"logged into iRODS as {environment.irods_user_name}#{environment.irods_zone_name} "
             f"to {environment.irods_host}:{environment.irods_port}"
         )
         self._sync_from_config()
