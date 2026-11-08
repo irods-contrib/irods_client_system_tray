@@ -370,7 +370,7 @@ class TrayController(QObject):
         self.menu.addAction(self.sign_in_action)
         self.menu.addAction(self.sign_out_action)
         self.auth_separator = self.menu.addSeparator()
-        open_action = self.menu.addAction("Open Settings")
+        open_action = self.menu.addAction("Main Window")
         open_action.triggered.connect(lambda _checked=False: self.show_window())
         self.open_settings_action = open_action
         self.menu.addAction(self.monitor_toggle_action)
