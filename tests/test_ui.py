@@ -178,6 +178,7 @@ def test_changing_zone_rewrites_the_prefix_and_keeps_the_path():
 def test_add_folder_dialog_requires_a_source_folder():
     # Checks OK is refused, with an explanation, until a folder is chosen.
     dialog = AddDirectoryDialog("tempZone", [])
+    assert not hasattr(dialog, "recursive_checkbox")
 
     dialog._accept_if_valid()
 
@@ -191,14 +192,12 @@ def test_add_folder_dialog_returns_the_entered_values(tmp_path):
     dialog = AddDirectoryDialog("tempZone", [])
     dialog.source_directory_input.setText(f"  {tmp_path}  ")
     dialog.target_collection_input.setText("/tempZone/home/alice")
-    dialog.recursive_checkbox.setChecked(False)
 
     directory = dialog.get_directory()
 
     assert directory == MonitoredDirectory(
         source_directory=str(tmp_path),
         target_collection="/tempZone/home/alice",
-        recursive=False,
     )
 
 
@@ -206,14 +205,14 @@ def test_add_folder_dialog_returns_the_entered_values(tmp_path):
 
 
 def test_folder_row_shows_target_and_cleanup_policy(settings_window):
-    # Each row summarizes one watched folder: where it uploads to, whether subfolders
-    # are included, and what happens to the local file afterwards. The cleanup policy
-    # is the only warning the app gives that uploading removes the local copy.
+    # Each row summarizes one watched folder: where it uploads to and what happens
+    # to the local file afterwards. The cleanup policy is the only warning the app
+    # gives that uploading removes the local copy.
     settings_window.set_directories(
         [
-            MonitoredDirectory("/kept", "/tempZone/x", True, "keep", ""),
-            MonitoredDirectory("/wiped", "/tempZone/y", True, "delete", ""),
-            MonitoredDirectory("/moved", "/tempZone/z", True, "move", "/archive"),
+            MonitoredDirectory("/kept", "/tempZone/x", "keep", ""),
+            MonitoredDirectory("/wiped", "/tempZone/y", "delete", ""),
+            MonitoredDirectory("/moved", "/tempZone/z", "move", "/archive"),
         ],
         set(),
     )
@@ -221,6 +220,8 @@ def test_folder_row_shows_target_and_cleanup_policy(settings_window):
     rows = [settings_window.directory_list.item(row).text() for row in range(3)]
 
     assert "/tempZone/x" in rows[0] and "keep" in rows[0]
+    assert "recursive" not in rows[0].lower()
+    assert "recursive" not in settings_window.directory_list.item(0).toolTip().lower()
     assert "delete" in rows[1]
     assert "/archive" in rows[2]
 
@@ -334,7 +335,7 @@ def test_add_folder_dialog_refuses_a_destination_inside_a_watch(tmp_path, destin
     target = source / "archive" if destination == "inside-itself" else already_watched / "archive"
 
     dialog = AddDirectoryDialog(
-        "tempZone", [MonitoredDirectory(str(already_watched), "/tempZone/x", True, "keep", "")]
+        "tempZone", [MonitoredDirectory(str(already_watched), "/tempZone/x", "keep", "")]
     )
     dialog.source_directory_input.setText(str(source))
     dialog.post_upload_action_input.setCurrentIndex(

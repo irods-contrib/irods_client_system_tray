@@ -757,8 +757,6 @@ class AddDirectoryDialog(QDialog):
         self.target_collection_input = ZoneRootLineEdit()
         self.target_collection_input.set_zone_name(zone_name)
         self.target_collection_input.setPlaceholderText("home/alice/collection")
-        self.recursive_checkbox = QCheckBox("Monitor subfolders recursively")
-        self.recursive_checkbox.setChecked(True)
 
         self.post_upload_action_input = QComboBox()
         for label, value in POST_UPLOAD_ACTION_OPTIONS:
@@ -785,7 +783,6 @@ class AddDirectoryDialog(QDialog):
 
         form_layout.addRow("Source directory", source_widget)
         form_layout.addRow("Target collection", self.target_collection_input)
-        form_layout.addRow("Recursive", self.recursive_checkbox)
         form_layout.addRow("After upload", self.post_upload_action_input)
         self.post_upload_destination_label = QLabel("Move destination")
         form_layout.addRow(
@@ -857,7 +854,6 @@ class AddDirectoryDialog(QDialog):
         return MonitoredDirectory(
             source_directory=self.source_directory_input.text().strip(),
             target_collection=self.target_collection_input.collection_path(),
-            recursive=self.recursive_checkbox.isChecked(),
             post_upload_action=self.post_upload_action_input.currentData(),
             post_upload_destination=self.post_upload_destination_input.text().strip(),
             regex_filter=RegexFilterConfig(
@@ -1227,19 +1223,17 @@ class SettingsWindow(QWidget):
         self._monitored_directories = list(directories)
         for directory in directories:
             target_label = directory.target_collection or "(target collection required)"
-            recursive_label = "recursive" if directory.recursive else "top-level only"
             cleanup_label = _describe_post_upload_policy(directory)
             regex_label = _describe_regex_filter(directory)
             label = (
                 f"{directory.source_directory} -> {target_label} "
-                f"({recursive_label}, {cleanup_label}, {regex_label})"
+                f"({cleanup_label}, {regex_label})"
             )
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, directory.source_directory)
             item.setToolTip(
                 f"Source directory: {directory.source_directory}\n"
                 f"Target collection: {target_label}\n"
-                f"Recursive monitoring: {'On' if directory.recursive else 'Off'}\n"
                 f"Post-upload action: {cleanup_label}\n"
                 f"Regex filter: {regex_label}"
             )
@@ -1248,7 +1242,6 @@ class SettingsWindow(QWidget):
                 item.setToolTip(
                     "Directory does not currently exist and is not being watched.\n"
                     f"Target collection: {target_label}\n"
-                    f"Recursive monitoring: {'On' if directory.recursive else 'Off'}\n"
                     f"Post-upload action: {cleanup_label}\n"
                     f"Regex filter: {regex_label}"
                 )

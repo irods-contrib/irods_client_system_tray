@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import irods_client_system_tray.config as config_module
@@ -162,22 +164,22 @@ def test_irods_password_is_never_written_to_disk(tmp_path):
     assert store.load().irods_password == ""
 
 
-def test_recursive_setting_survives_a_restart(tmp_path):
-    # Checks a user who unticks "monitor subfolders" still has it unticked after a
-    # restart. An older saved file with no such setting defaults to watching
-    # subfolders, which matches what the app did before the option existed.
+def test_legacy_recursive_setting_is_ignored_and_removed_on_save(tmp_path):
+    # An older config may explicitly disable recursion; it must no longer affect
+    # monitoring or be written back to disk.
     source = str(tmp_path)
     store = ConfigStore(path=tmp_path / "app_state.json")
-    store.save(
-        AppConfig(
-            monitored_directories=[
-                MonitoredDirectory(source_directory=source, recursive=False)
-            ]
-        )
+    store.path.write_text(
+        json.dumps({"monitored_directories": [{"source_directory": source, "recursive": False}]}),
+        encoding="utf-8",
     )
 
-    assert store.load().monitored_directories[0].recursive is False
-    assert normalize_monitored_directories([{"source_directory": source}])[0].recursive is True
+    loaded = store.load()
+    assert loaded.monitored_directories == [MonitoredDirectory(source_directory=source)]
+
+    store.save(loaded)
+    saved = json.loads(store.path.read_text(encoding="utf-8"))
+    assert "recursive" not in saved["monitored_directories"][0]
 
 
 @pytest.mark.parametrize(

@@ -2,13 +2,14 @@
 
 ``MonitorManager`` turns raw watchdog events into the signals the rest of the app
 listens to: files to ingest, and watched folders that were renamed, moved away, or
-deleted. Those classification helpers are exercised directly. ``sync()`` needs a live
-observer thread and real filesystem events, so it is not covered here.
+deleted. Those classification helpers are exercised directly; ``sync()`` is tested
+with a stub observer instead of starting a real filesystem watcher.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import Mock
 
 from watchdog.events import (
     DirCreatedEvent,
@@ -16,6 +17,7 @@ from watchdog.events import (
     FileCreatedEvent,
     FileMovedEvent,
 )
+from watchdog.observers.api import ObservedWatch
 
 from irods_client_system_tray.config import MonitoredDirectory
 from irods_client_system_tray.monitor import EventBridge, IngestionEventHandler, MonitorManager
@@ -121,6 +123,28 @@ def test_sync_with_monitoring_disabled_starts_no_observer(tmp_path):
 
     assert manager._observer is None
     assert manager._directory_watches == {}
+
+
+def test_sync_replaces_non_recursive_watch_and_schedules_recursive_folders(
+    tmp_path, monkeypatch
+):
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    manager = MonitorManager()
+    observer = Mock()
+    observer.schedule.side_effect = lambda handler, path, recursive: ObservedWatch(
+        path, recursive=recursive
+    )
+    manager._observer = observer
+    monkeypatch.setattr(manager, "_ensure_running", lambda: True)
+    old_watch = ObservedWatch(str(watched), recursive=False)
+    manager._directory_watches[str(watched)] = old_watch
+
+    manager.sync([MonitoredDirectory(source_directory=str(watched))], is_active=True)
+
+    observer.unschedule.assert_called_once_with(old_watch)
+    assert manager._directory_watches[str(watched)].is_recursive
+    assert manager._parent_watches[str(tmp_path)].is_recursive is False
 
 
 def test_ingestion_handler_queues_files_but_not_directories(tmp_path):
