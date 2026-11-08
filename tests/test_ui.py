@@ -201,6 +201,38 @@ def test_add_folder_dialog_returns_the_entered_values(tmp_path):
     )
 
 
+@pytest.mark.parametrize("candidate", ["parent", "child", "same"])
+def test_add_folder_dialog_rejects_overlapping_folders(tmp_path, candidate):
+    watched = tmp_path / "parent" / "watched"
+    (watched / "child").mkdir(parents=True)
+    candidates = {
+        "parent": watched.parent,
+        "child": watched / "child",
+        "same": watched,
+    }
+    dialog = AddDirectoryDialog("tempZone", [MonitoredDirectory(str(watched))])
+    dialog.source_directory_input.setText(str(candidates[candidate]))
+
+    dialog._accept_if_valid()
+
+    assert "overlaps monitored folder" in dialog.validation_label.text()
+    assert str(watched) in dialog.validation_label.text()
+    assert dialog.result() != dialog.DialogCode.Accepted
+
+
+def test_add_folder_dialog_allows_sibling_with_similar_name(tmp_path):
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    sibling = tmp_path / "watched-other"
+    sibling.mkdir()
+    dialog = AddDirectoryDialog("tempZone", [MonitoredDirectory(str(watched))])
+    dialog.source_directory_input.setText(str(sibling))
+
+    dialog._accept_if_valid()
+
+    assert dialog.result() == dialog.DialogCode.Accepted
+
+
 # --- settings window ------------------------------------------------------------
 
 

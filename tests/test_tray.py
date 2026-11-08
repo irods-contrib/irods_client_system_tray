@@ -118,7 +118,17 @@ def test_folder_inside_a_recursive_watch_is_rejected(controller, watched):
     controller.add_directory(MonitoredDirectory(str(nested), "home/nested", "keep", ""))
 
     assert len(controller.config.monitored_directories) == 1
-    assert "already monitored through recursive watch" in controller.window.status_label.text()
+    assert "overlaps monitored folder" in controller.window.status_label.text()
+
+
+def test_sibling_with_similar_name_is_not_an_overlap(controller, watched, tmp_path):
+    sibling = tmp_path / "watched-other"
+    sibling.mkdir()
+
+    controller.add_directory(MonitoredDirectory(str(sibling), "home/other", "keep", ""))
+
+    assert len(controller.config.monitored_directories) == 2
+    assert controller.config.monitored_directories[1].source_directory == str(sibling)
 
 
 def test_removed_folder_is_dropped_from_the_saved_file(controller, watched, tmp_path):
@@ -493,7 +503,7 @@ def test_recursive_watch_above_an_existing_folder_is_rejected(controller, watche
     controller.add_directory(MonitoredDirectory(str(tmp_path), "home/parent", "keep", ""))
 
     assert _stored_folders(controller) == [(str(watched), "/tempZone/home/alice")]
-    assert "would overlap existing folder" in controller.window.status_label.text()
+    assert "overlaps monitored folder" in controller.window.status_label.text()
 
 
 def test_cleanup_warning_is_shown_in_the_status_line(controller, queued_uploads, watched_file):
