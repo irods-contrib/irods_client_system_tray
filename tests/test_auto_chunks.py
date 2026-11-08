@@ -36,6 +36,14 @@ def test_parallel_candidates_respect_memory_budget():
     assert tuner.limit_for_workers(22) == 8  # No size fits; controller caps workers.
 
 
+def test_parallel_candidates_use_configured_memory_cap():
+    tuner = AutomaticChunkSize(16, parallel=True, memory_cap_mib=48)
+    assert tuner.limit_for_workers(2) == 8
+    assert record_window(tuner, 0, workers=2) == 4
+    tuner.memory_cap_mib = 96
+    assert tuner.limit_for_workers(2) == 4
+
+
 def test_parallel_probe_reverts_after_transfer_failure_but_not_authentication_error():
     tuner = AutomaticChunkSize(4, parallel=True)
     assert record_window(tuner, 0) == 8
