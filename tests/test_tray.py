@@ -430,23 +430,17 @@ def test_signing_out_locks_the_app_and_clears_the_queue(controller, queued_uploa
 # --- post-upload cleanup rules --------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="add_directory() normalizes before it validates, so the move-without-destination "
-    "guard is unreachable and the folder is saved as 'delete' instead",
+@pytest.mark.parametrize(
+    ("action", "destination"),
+    [("move", ""), ("move", "   "), ("  MoVe ", "")],
 )
-def test_move_without_a_destination_is_refused(controller, tmp_path):
-    # add_directory() calls normalize_monitored_directories() before checking the action,
-    # and that call has already rewritten a "move" with no destination into the default
-    # "delete". The guard below it therefore never sees "move" and never fires, so a
-    # folder the user asked to move files from is saved as one that deletes them.
-    #
-    # The add-folder dialog still blocks this, so it is not reachable from the GUI, but
-    # the guard in add_directory() is dead code as written.
+def test_move_without_a_destination_is_refused(controller, tmp_path, action, destination):
+    # Reject incomplete move settings before normalization can turn them into a
+    # "delete" action. This also protects callers outside the add-folder dialog.
     folder = tmp_path / "watched"
     folder.mkdir()
 
-    controller.add_directory(MonitoredDirectory(str(folder), "home/alice", "move", ""))
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice", action, destination))
 
     assert controller.config.monitored_directories == []
     assert controller.window.status_label.text() == (
