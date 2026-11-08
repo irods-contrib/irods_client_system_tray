@@ -36,13 +36,11 @@ QLabel#validationLabel {
     font-size: $font_sm;
 }
 
-QFrame#irodsCard,
 QFrame#directoryCard {
     border: 1px solid $border;
     border-radius: 14px;
     background: $card_bg;
 }
-QLabel#irodsCardTitle,
 QLabel#directoryCardTitle,
 QLabel#activityTitle {
     color: $text;

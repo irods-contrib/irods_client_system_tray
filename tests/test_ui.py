@@ -13,7 +13,7 @@ import threading
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QFrame, QLabel
 
 from irods_client_system_tray.activity_log import ActivityLog
 from irods_client_system_tray.config import (
@@ -353,27 +353,18 @@ def test_activity_log_loads_existing_entries(activity_log):
     assert " - newer event" in window.activity_list.item(1).text()
 
 
-def test_settings_form_never_shows_a_password(settings_window):
-    # Checks the password box starts empty. The password is never saved to disk, so
-    # showing anything there would be a stale or fake value.
-    settings_window.set_irods_environment(
-        IRODSEnvironment(
-            irods_host="irods.example.org",
-            irods_port=1250,
-            irods_user_name="alice",
-            irods_password="should-not-be-shown",
-            irods_zone_name="tempZone",
-        )
-    )
+def test_settings_tab_only_contains_retry_controls(settings_window):
+    settings_tab = settings_window.tabs.widget(1)
 
-    assert settings_window.irods_password_input.text() == ""
-    assert settings_window.get_irods_environment() == IRODSEnvironment(
-        irods_host="irods.example.org",
-        irods_port=1250,
-        irods_user_name="alice",
-        irods_password="",
-        irods_zone_name="tempZone",
-    )
+    assert settings_tab.findChild(QFrame, "retryCard") is not None
+    assert settings_tab.findChild(QFrame, "irodsCard") is None
+    assert not hasattr(settings_window, "irods_password_input")
+    assert settings_window.save_retry_settings_button.text() == "Save Retry Settings"
+
+    requested = []
+    settings_window.save_retry_settings_requested.connect(lambda: requested.append(True))
+    settings_window.save_retry_settings_button.click()
+    assert requested == [True]
 
 
 # --- post-upload cleanup in the add-folder dialog -------------------------------
