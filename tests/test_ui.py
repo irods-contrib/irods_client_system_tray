@@ -353,6 +353,28 @@ def test_activity_log_loads_existing_entries(activity_log):
     assert " - newer event" in window.activity_list.item(1).text()
 
 
+def test_recent_activity_scrolls_to_bottom_after_first_show(activity_log, qapp):
+    for index in range(55):
+        activity_log.append(f"event {index}")
+    window = SettingsWindow(activity_log)
+
+    try:
+        window.show()
+        qapp.processEvents()
+
+        scrollbar = window.activity_list.verticalScrollBar()
+        assert scrollbar.maximum() > 0
+        assert scrollbar.value() == scrollbar.maximum()
+
+        window.hide()
+        scrollbar.setValue(0)
+        window.show()
+        qapp.processEvents()
+        assert scrollbar.value() == 0
+    finally:
+        window.hide()
+
+
 def test_settings_tab_only_contains_retry_controls(settings_window):
     settings_tab = settings_window.tabs.widget(1)
 
