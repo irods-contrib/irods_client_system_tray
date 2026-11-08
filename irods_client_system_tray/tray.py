@@ -552,7 +552,7 @@ class TrayController(QObject):
 
         if show_status:
             if not self.config.is_monitoring_active:
-                self.window.set_status_message("Monitoring paused.")
+                self.window.set_status_message("")
             elif directories_missing_targets:
                 self.window.set_status_message(
                     f"{len(directories_missing_targets)} monitored folder(s) need a target collection before uploads can run.",
@@ -560,11 +560,11 @@ class TrayController(QObject):
                 )
             elif invalid_directories:
                 self.window.set_status_message(
-                    f"Monitoring active for available folders. {len(invalid_directories)} folder(s) are missing.",
+                    f"{len(invalid_directories)} monitored folder(s) are missing.",
                     is_error=True,
                 )
             else:
-                self.window.set_status_message("Monitoring active.")
+                self.window.set_status_message("")
 
     def _persist_and_sync(self) -> None:
         """Save the latest state and immediately refresh monitoring and UI widgets."""

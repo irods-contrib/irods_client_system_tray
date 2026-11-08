@@ -55,6 +55,16 @@ def test_settings_window_uses_irods_ingest_name(settings_window):
     assert not hasattr(settings_window, "subtitle_label")
 
 
+def test_status_line_is_hidden_without_a_message(settings_window):
+    assert settings_window.status_label.isHidden()
+
+    settings_window.set_status_message("Upload failed.", is_error=True)
+    assert not settings_window.status_label.isHidden()
+
+    settings_window.set_status_message("")
+    assert settings_window.status_label.isHidden()
+
+
 @pytest.fixture
 def one_shot_server():
     """Start a local socket that answers a single request with a fixed payload."""
