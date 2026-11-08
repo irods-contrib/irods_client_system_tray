@@ -86,22 +86,39 @@ def test_session_summary_is_right_aligned_in_the_window_header(settings_window):
 
 
 def test_header_shows_worker_queue_and_recent_speed(settings_window):
-    settings_window.set_upload_summary(3, 2, 5, 12 * 1024 * 1024, 3723)
+    settings_window.set_upload_summary(
+        3, 2, 5, 12 * 1024 * 1024,
+        remaining_bytes=12 * 1024 * 1024 + 512 * 1024, eta_seconds=3723,
+    )
 
     assert settings_window.upload_summary_label.text() == "Active Workers: 2/3"
-    assert settings_window.upload_queue_label.text() == "Queue: 5 (ETA 1h 2m 3s)"
+    assert settings_window.upload_queue_label.text() == (
+        "Queue: 5 (12.5 MiB remaining, ETA 1h 2m 3s)"
+    )
     assert settings_window.upload_throughput_label.text() == "Throughput: 12.0 MiB/s"
 
-    settings_window.set_upload_summary(2, 0, 0, None)
+    settings_window.set_upload_summary(2, 0, 0, None, remaining_bytes=0, eta_seconds=0)
     assert settings_window.upload_summary_label.text() == "Active Workers: 0/2"
-    assert settings_window.upload_queue_label.text() == "Queue: 0 (ETA --)"
+    assert settings_window.upload_queue_label.text() == "Queue: 0 (0 B remaining, ETA 0s)"
     assert settings_window.upload_throughput_label.text() == "Throughput: --"
 
-    settings_window.set_upload_summary(2, 0, 0, None, 0)
-    assert settings_window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 0s)"
-
-    settings_window.set_upload_summary(2, 1, 0, 2048, 4)
+    settings_window.set_upload_summary(2, 1, 0, 2048, remaining_bytes=1024, eta_seconds=4)
+    assert settings_window.upload_queue_label.text() == "Queue: 0 (1.0 KiB remaining, ETA 4s)"
     assert settings_window.upload_throughput_label.text() == "Throughput: 2.0 KiB/s"
+
+    settings_window.set_upload_summary(2, 1, 1, None)
+    assert settings_window.upload_queue_label.text() == "Queue: 1 (size unknown, ETA --)"
+
+
+@pytest.mark.parametrize(
+    ("seconds", "formatted"),
+    [(0, "0s"), (42, "42s"), (60, "1m"), (62, "1m 2s"),
+     (3600, "1h"), (3602, "1h 2s"), (3723, "1h 2m 3s")],
+)
+def test_queue_eta_omits_zero_time_units(settings_window, seconds, formatted):
+    settings_window.set_upload_summary(2, 1, 1, 1, remaining_bytes=10, eta_seconds=seconds)
+
+    assert settings_window.upload_queue_label.text().endswith(f"ETA {formatted})")
 
 
 def test_session_summary_clears_when_no_connection_is_configured(settings_window):

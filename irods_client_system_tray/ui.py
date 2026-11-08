@@ -68,11 +68,24 @@ def _set_label_error_state(label: QLabel, is_error: bool) -> None:
     
 
 def _format_throughput(bytes_per_second: float) -> str:
+    if bytes_per_second <= 0:
+        return "0 B/s"
     if bytes_per_second >= 1024 * 1024:
         return f"{bytes_per_second / (1024 * 1024):.1f} MiB/s"
     if bytes_per_second >= 1024:
         return f"{bytes_per_second / 1024:.1f} KiB/s"
     return f"{bytes_per_second:.1f} B/s"
+
+
+def _format_remaining_size(bytes_remaining: int | None) -> str:
+    if bytes_remaining is None:
+        return "size unknown"
+    size = float(max(0, bytes_remaining))
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            return f"{int(size)} B" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    raise AssertionError("Unreachable size unit")
 
 
 class LoginWorker(QObject):
@@ -1344,9 +1357,9 @@ class SettingsWindow(QWidget):
 
     def set_upload_summary(
         self, workers: int, active: int, queued: int, throughput: float | None,
-        eta_seconds: int | None = None,
+        *, remaining_bytes: int | None = None, eta_seconds: int | None = None,
     ) -> None:
-        """Show queue capacity, throughput, and estimated time remaining."""
+        """Show queue size, unsent bytes, throughput, and time remaining."""
 
         self.upload_summary_label.setText(f"Active Workers: {active}/{workers}")
         if eta_seconds is None:
@@ -1354,8 +1367,17 @@ class SettingsWindow(QWidget):
         else:
             hours, remainder = divmod(max(0, eta_seconds), 3600)
             minutes, seconds = divmod(remainder, 60)
-            eta = f"{hours}h {minutes}m {seconds}s"
-        self.upload_queue_label.setText(f"Queue: {queued} (ETA {eta})")
+            parts = []
+            if hours:
+                parts.append(f"{hours}h")
+            if minutes:
+                parts.append(f"{minutes}m")
+            if seconds or not parts:
+                parts.append(f"{seconds}s")
+            eta = " ".join(parts)
+        size = _format_remaining_size(remaining_bytes)
+        remaining = f"{size} remaining" if remaining_bytes is not None else size
+        self.upload_queue_label.setText(f"Queue: {queued} ({remaining}, ETA {eta})")
         rate = "--" if throughput is None else _format_throughput(throughput)
         self.upload_throughput_label.setText(f"Throughput: {rate}")
 

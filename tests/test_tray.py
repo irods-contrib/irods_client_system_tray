@@ -506,7 +506,9 @@ def test_header_counts_pending_and_active_uploads(controller, queued_uploads, tm
 
     limit = controller.config.maximum_upload_workers
     assert controller.window.upload_summary_label.text() == f"Active Workers: {limit}/{limit}"
-    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA --)"
+    assert controller.window.upload_queue_label.text() == (
+        f"Queue: 1 ({4 * (limit + 1)} B remaining, ETA --)"
+    )
 
 
 def test_header_eta_accounts_for_active_progress_and_waiting_files(
@@ -527,19 +529,19 @@ def test_header_eta_accounts_for_active_progress_and_waiting_files(
     controller._queue_ingestion(str(second))
     controller._recent_throughput = 2.0  # Bytes per second.
     controller._update_upload_summary()
-    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA 0h 0m 6s)"
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (12 B remaining, ETA 6s)"
 
     controller._handle_upload_progress(str(first), "/tempZone/home/alice/one.txt", 4, 8)
-    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA 0h 0m 4s)"
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (8 B remaining, ETA 4s)"
 
     controller._handle_upload_progress(str(first), "/tempZone/home/alice/one.txt", 8, 8)
     controller._handle_upload_finished(str(first), "/tempZone/home/alice/one.txt")
-    assert controller.window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 2s)"
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (4 B remaining, ETA 2s)"
 
     controller._handle_upload_progress(str(second), "/tempZone/home/alice/two.txt", 2, 4)
-    assert controller.window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 1s)"
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (2 B remaining, ETA 1s)"
     controller._handle_upload_finished(str(second), "/tempZone/home/alice/two.txt")
-    assert controller.window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 0s)"
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (0 B remaining, ETA 0s)"
 
 
 def test_header_eta_is_unknown_without_speed_or_waiting_file_size(
@@ -556,11 +558,11 @@ def test_header_eta_is_unknown_without_speed_or_waiting_file_size(
     active.write_text("data", encoding="utf-8")
     controller._queue_ingestion(str(active))
     controller._queue_ingestion(str(folder / "missing.txt"))
-    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA --)"
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (size unknown, ETA --)"
 
     controller._recent_throughput = 100.0
     controller._update_upload_summary()
-    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA --)"
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (size unknown, ETA --)"
 
 
 def test_header_uses_aggregate_throughput_of_overlapping_uploads(controller):
@@ -581,14 +583,43 @@ def test_header_uses_aggregate_throughput_of_overlapping_uploads(controller):
     assert controller.window.upload_throughput_label.text() == "Throughput: 2.0 MiB/s"
 
 
-def test_old_transfer_speed_is_not_used_for_eta(controller):
+def test_old_transfer_speed_drops_to_zero(controller):
     from irods_client_system_tray.auto_workers import TransferSample
 
     controller._recent_throughput = 1024 * 1024
     controller._recent_transfers.append(TransferSample(1024, 1, 2))
+    controller._last_transfer_activity_at = 2
     controller._update_upload_summary()
 
-    assert controller.window.upload_throughput_label.text() == "Throughput: --"
+    assert controller.window.upload_throughput_label.text() == "Throughput: 0 B/s"
+
+
+def test_throughput_idle_timer_refreshes_speed_and_eta(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(type(controller), "THROUGHPUT_IDLE_SECONDS", 0.05)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    file_path = folder / "report.csv"
+    file_path.write_bytes(b"12345678")
+    controller._queue_ingestion(str(file_path))
+    controller._recent_throughput = 8.0
+    controller._note_transfer_activity()
+    controller._update_upload_summary()
+
+    assert controller.window.upload_throughput_label.text() == "Throughput: 8.0 B/s"
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (8 B remaining, ETA 1s)"
+
+    deadline = time.monotonic() + 2
+    while controller.window.upload_throughput_label.text() != "Throughput: 0 B/s":
+        assert time.monotonic() < deadline
+        qapp.processEvents()
+        time.sleep(0.005)
+
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (8 B remaining, ETA --)"
 
 
 def test_automatic_mode_changes_active_capacity_when_backlogged(
