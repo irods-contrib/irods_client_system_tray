@@ -723,27 +723,24 @@ def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
     assert window.maximum_upload_workers_input.maximum() == 1
 
 
-def test_automatic_worker_controls_show_effective_count_and_throughput(settings_window):
+def test_automatic_worker_control_shows_effective_count(settings_window):
     assert not settings_window.get_automatic_upload_workers()
     assert settings_window.maximum_upload_workers_input.isEnabled()
     assert not settings_window.memory_cap_input.isEnabled()
 
     settings_window.set_automatic_upload_workers(True, 512)
-    settings_window.set_auto_worker_status(2, 3 * 1024 * 1024)
+    settings_window.set_auto_worker_status(2)
 
     assert settings_window.get_automatic_upload_workers()
     assert settings_window.get_memory_cap() == 512
     assert not settings_window.maximum_upload_workers_input.isEnabled()
     assert settings_window.maximum_upload_workers_input.value() == 2
     assert settings_window.memory_cap_input.isEnabled()
-    assert "Currently using 2 upload workers" in settings_window.auto_worker_status_label.text()
-    assert "3.0 MiB/s" in settings_window.auto_worker_status_label.text()
 
     settings_window.set_automatic_upload_workers(False, 512)
     assert settings_window.maximum_upload_workers_input.isEnabled()
     assert settings_window.maximum_upload_workers_input.value() == 2
     assert not settings_window.memory_cap_input.isEnabled()
-    assert settings_window.auto_worker_status_label.isHidden()
 
 
 def test_write_chunk_controls_keep_last_effective_values(settings_window):
@@ -756,15 +753,12 @@ def test_write_chunk_controls_keep_last_effective_values(settings_window):
 
     assert settings_window.get_write_chunk_settings() == (4, 8)
     assert not settings_window.parallel_write_chunk_input.isEnabled()
-    assert "single 4 MiB · parallel 8 MiB" in settings_window.chunk_status_label.text()
 
     settings_window.set_automatic_upload_workers(False, 256)
     assert settings_window.get_write_chunk_settings() == (4, 8)
     assert settings_window.parallel_write_chunk_input.isEnabled()
-    assert settings_window.chunk_status_label.isHidden()
-
-    settings_window.set_chunk_status(8, 16, worker_cap=5)
-    assert "memory budget caps workers at 5" in settings_window.chunk_status_label.text()
+    settings_window.set_chunk_status(8, 16)
+    assert settings_window.get_write_chunk_settings() == (4, 8)
 
 
 def test_automatic_write_selectors_show_effective_sizes_and_freeze_on_manual(

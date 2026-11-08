@@ -1113,9 +1113,6 @@ class SettingsWindow(QWidget):
         self.memory_cap_input = QSpinBox()
         self.memory_cap_input.setRange(MIN_MEMORY_CAP_MIB, MAX_MEMORY_CAP_MIB)
         self.memory_cap_input.setValue(DEFAULT_MEMORY_CAP_MIB)
-        self.auto_worker_status_label = QLabel()
-        self.auto_worker_status_label.setWordWrap(True)
-        self.auto_worker_status_label.hide()
         self.single_write_chunk_input = QComboBox()
         self.parallel_write_chunk_input = QComboBox()
         for size in WRITE_CHUNK_SIZES_MIB:
@@ -1127,9 +1124,6 @@ class SettingsWindow(QWidget):
         self.parallel_write_chunk_input.setCurrentIndex(
             self.parallel_write_chunk_input.findData(DEFAULT_PARALLEL_WRITE_CHUNK_MIB)
         )
-        self.chunk_status_label = QLabel()
-        self.chunk_status_label.setWordWrap(True)
-        self.chunk_status_label.hide()
 
         retry_form_layout.addRow("Retry attempts", self.retry_attempts_input)
         retry_form_layout.addRow("Initial delay (s)", self.retry_first_delay_input)
@@ -1142,8 +1136,6 @@ class SettingsWindow(QWidget):
 
         retry_layout.addWidget(retry_title)
         retry_layout.addLayout(retry_form_layout)
-        retry_layout.addWidget(self.auto_worker_status_label)
-        retry_layout.addWidget(self.chunk_status_label)
         self._update_worker_mode_state()
 
         settings_button_row = QHBoxLayout()
@@ -1366,15 +1358,9 @@ class SettingsWindow(QWidget):
     def get_memory_cap(self) -> int:
         return self.memory_cap_input.value()
 
-    def set_auto_worker_status(self, workers: int, throughput: float | None) -> None:
+    def set_auto_worker_status(self, workers: int) -> None:
         if self.automatic_upload_workers_checkbox.isChecked():
             self.maximum_upload_workers_input.setValue(workers)
-        message = f"Currently using {workers} upload worker{'s' if workers != 1 else ''}"
-        if throughput is None:
-            message += " · gathering transfer data"
-        else:
-            message += f" · recent throughput {_format_throughput(throughput)}"
-        self.auto_worker_status_label.setText(message)
 
     def set_upload_summary(
         self, workers: int, active: int, queued: int, throughput: float | None,
@@ -1406,10 +1392,8 @@ class SettingsWindow(QWidget):
         automatic = self.automatic_upload_workers_checkbox.isChecked()
         self.maximum_upload_workers_input.setEnabled(not automatic)
         self.memory_cap_input.setEnabled(automatic)
-        self.auto_worker_status_label.setVisible(automatic)
         self.single_write_chunk_input.setEnabled(not automatic)
         self.parallel_write_chunk_input.setEnabled(not automatic)
-        self.chunk_status_label.setVisible(automatic)
 
     def set_write_chunk_settings(self, single: int, parallel: int) -> None:
         self.single_write_chunk_input.setCurrentIndex(self.single_write_chunk_input.findData(single))
@@ -1418,9 +1402,7 @@ class SettingsWindow(QWidget):
     def get_write_chunk_settings(self) -> tuple[int, int]:
         return self.single_write_chunk_input.currentData(), self.parallel_write_chunk_input.currentData()
 
-    def set_chunk_status(
-        self, single: int, parallel: int, *, worker_cap: int | None = None
-    ) -> None:
+    def set_chunk_status(self, single: int, parallel: int) -> None:
         if self.automatic_upload_workers_checkbox.isChecked():
             self.single_write_chunk_input.setCurrentIndex(
                 self.single_write_chunk_input.findData(single)
@@ -1428,10 +1410,6 @@ class SettingsWindow(QWidget):
             self.parallel_write_chunk_input.setCurrentIndex(
                 self.parallel_write_chunk_input.findData(parallel)
             )
-        message = f"Write sizes: single {single} MiB · parallel {parallel} MiB"
-        if worker_cap is not None:
-            message += f" · memory budget caps workers at {worker_cap}"
-        self.chunk_status_label.setText(message)
 
     def set_status_message(self, message: str, *, is_error: bool = False) -> None:
         """Show a normal or error status message near the top of the window."""
