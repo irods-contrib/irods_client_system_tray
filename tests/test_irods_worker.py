@@ -132,6 +132,64 @@ def test_missing_target_collection_raises_instead_of_creating():
     session.collections.create.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("total_bytes", "chunks", "expected"),
+    [
+        (100, [20, 30, 50], [0, 20, 50, 100]),
+        (3 * 1024**3, [1024**3] * 3, [0, 1024**3, 2 * 1024**3, 3 * 1024**3]),
+        (1000, [1, 1, 498, 500], [0, 500, 1000]),
+    ],
+)
+def test_stream_upload_reports_chunk_progress(
+    tmp_path, monkeypatch, total_bytes, chunks, expected
+):
+    from irods import session as irods_session
+
+    fake_session = MagicMock()
+    fake_session.__enter__.return_value = fake_session
+    local_file = tmp_path / "report.csv"
+    logical_path = "/tempZone/home/alice/report.csv"
+
+    def fake_put(local_path, target_path, *, updatables):
+        assert (local_path, target_path) == (str(local_file), logical_path)
+        for chunk_size in chunks:
+            updatables(chunk_size)
+
+    fake_session.data_objects.put.side_effect = fake_put
+    monkeypatch.setattr(irods_session, "iRODSSession", lambda **_kwargs: fake_session)
+    worker = IRODSUploadWorker()
+    progress = []
+    worker.upload_progress.connect(lambda *args: progress.append(args))
+
+    worker._stream_upload(
+        local_file, logical_path, "/tempZone/home/alice", total_bytes, IRODSEnvironment()
+    )
+
+    assert progress == [
+        (str(local_file), logical_path, bytes_sent, total_bytes) for bytes_sent in expected
+    ]
+
+
+def test_stream_upload_reports_completion_if_client_skips_progress_callbacks(
+    tmp_path, monkeypatch
+):
+    from irods import session as irods_session
+
+    fake_session = MagicMock()
+    fake_session.__enter__.return_value = fake_session
+    monkeypatch.setattr(irods_session, "iRODSSession", lambda **_kwargs: fake_session)
+    worker = IRODSUploadWorker()
+    progress = []
+    worker.upload_progress.connect(lambda *args: progress.append(args[2:]))
+
+    worker._stream_upload(
+        tmp_path / "report.csv", "/tempZone/home/alice/report.csv",
+        "/tempZone/home/alice", 10, IRODSEnvironment()
+    )
+
+    assert progress == [(0, 10), (10, 10)]
+
+
 def test_empty_error_falls_back_to_the_exception_name():
     # Checks the user never sees a blank error. Some iRODS client exceptions carry
     # no text at all, so the worker falls back to the exception type name.
@@ -227,14 +285,20 @@ def test_upload_file_round_trips_into_a_live_zone(tmp_path, irods_environment):
     root = (tmp_path / "watched").resolve()
     root.mkdir()
     local_file = root / "integration-upload.txt"
-    local_file.write_text("integration payload", encoding="utf-8")
+    # Larger than the client's single-write buffer, so the live transfer reports
+    # at least one intermediate progress update rather than just 0% and 100%.
+    local_file.write_bytes(b"x" * (10 * 1024 * 1024))
     logical_path = f"{IRODS_TEST_COLLECTION}/integration-upload.txt"
 
     worker = IRODSUploadWorker(irods_environment)
     finished: list[tuple[str, str]] = []
     failures: list[str] = []
+    progress: list[tuple[int, int]] = []
     worker.upload_finished.connect(lambda path, logical: finished.append((path, logical)))
     worker.upload_failed.connect(lambda path, message: failures.append(message))
+    worker.upload_progress.connect(
+        lambda path, logical, sent, total: progress.append((sent, total))
+    )
 
     try:
         worker.upload_file(
@@ -243,6 +307,8 @@ def test_upload_file_round_trips_into_a_live_zone(tmp_path, irods_environment):
 
         assert failures == []
         assert finished == [(str(local_file), logical_path)]
+        assert any(0 < sent < total for sent, total in progress)
+        assert progress[-1] == (10 * 1024 * 1024, 10 * 1024 * 1024)
 
         with iRODSSession(**session_settings) as session:
             assert session.data_objects.exists(logical_path)
