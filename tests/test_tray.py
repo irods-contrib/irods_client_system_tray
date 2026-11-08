@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from threading import Thread
+from threading import Barrier, Lock, Thread
 
 import pytest
 from PySide6.QtCore import QEvent, QObject
@@ -25,6 +25,7 @@ from irods_client_system_tray.config import (
     IRODSEnvironment,
     MonitoredDirectory,
     RegexFilterConfig,
+    RetryConfig,
 )
 
 pytestmark = pytest.mark.usefixtures("qapp")
@@ -49,7 +50,8 @@ def controller(tmp_path, monkeypatch, qapp):
     # its own thread and would attempt a real transfer to irods.example.org. Detaching
     # it keeps these tests offline and deterministic; what the controller queues is
     # still observable through the queue_upload signal itself.
-    tray_controller.queue_upload.disconnect(tray_controller.upload_worker.upload_file)
+    for slot in tray_controller._upload_workers:
+        slot.dispatcher.upload.disconnect(slot.worker.upload_file)
 
     tray_controller._is_authenticated = True
     tray_controller.config.is_monitoring_active = False
@@ -110,7 +112,8 @@ def _controller_with_saved_folders(tmp_path, monkeypatch, qapp, directories, *, 
     from irods_client_system_tray.tray import TrayController
 
     controller = TrayController(qapp)
-    controller.queue_upload.disconnect(controller.upload_worker.upload_file)
+    for slot in controller._upload_workers:
+        slot.dispatcher.upload.disconnect(slot.worker.upload_file)
     monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
     return controller
 
@@ -326,7 +329,168 @@ def test_initial_scan_continues_across_batches(
             break
 
     assert not controller._initial_scan_iterators
+    assert len(controller._queued_uploads) == 105
+    assert len(queued_uploads) == controller.config.maximum_upload_workers
+
+    while controller._active_uploads:
+        path = next(iter(controller._active_uploads))
+        controller._handle_upload_finished(path, "/tempZone/home/alice/file")
     assert len(queued_uploads) == 105
+
+
+def test_queued_files_dispatch_only_when_a_worker_is_available(
+    controller, queued_uploads, tmp_path
+):
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    files = []
+    for index in range(controller.config.maximum_upload_workers + 1):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        files.append(str(path))
+        controller._queue_ingestion(str(path))
+
+    assert len(queued_uploads) == controller.config.maximum_upload_workers
+    assert len(controller._active_uploads) == controller.config.maximum_upload_workers
+    assert controller._queued_uploads[files[-1]].status == "queued"
+
+    controller._handle_upload_finished(files[0], "/tempZone/home/alice/0.txt")
+
+    assert [upload[0] for upload in queued_uploads] == files
+    assert len(controller._active_uploads) == controller.config.maximum_upload_workers
+
+
+def test_failed_upload_frees_a_worker_for_the_next_file(
+    controller, queued_uploads, tmp_path
+):
+    controller.config.retry = RetryConfig(attempts=0)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    files = []
+    for index in range(controller.config.maximum_upload_workers + 1):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        files.append(str(path))
+        controller._queue_ingestion(str(path))
+
+    controller._handle_upload_failed(files[0], "connection lost")
+
+    assert [upload[0] for upload in queued_uploads] == files
+    assert files[0] in controller._failed_uploads
+    assert files[-1] in controller._active_uploads
+
+
+def test_lowering_worker_limit_waits_for_active_uploads(
+    controller, queued_uploads, tmp_path
+):
+    if controller.config.maximum_upload_workers < 2:
+        pytest.skip("Needs at least two local CPUs")
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    files = []
+    for index in range(3):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        files.append(str(path))
+        controller._queue_ingestion(str(path))
+    assert len(queued_uploads) == 2
+
+    controller.window.maximum_upload_workers_input.setValue(1)
+    controller.window.save_settings_button.click()
+    assert controller.config_store.load().maximum_upload_workers == 1
+
+    controller._handle_upload_finished(files[0], "/tempZone/home/alice/0.txt")
+    assert len(queued_uploads) == 2
+    controller._handle_upload_finished(files[1], "/tempZone/home/alice/1.txt")
+    assert [upload[0] for upload in queued_uploads] == files
+    assert len(controller._active_uploads) == 1
+
+
+def test_two_upload_workers_can_transfer_files_at_the_same_time(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path
+):
+    if controller.config.maximum_upload_workers < 2:
+        pytest.skip("Needs at least two local CPUs")
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    controller._complete_login(controller.environment)
+    rendezvous = Barrier(2)
+    lock = Lock()
+    active = 0
+    max_active = 0
+
+    def fake_stream(*_args):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            rendezvous.wait(timeout=5)
+            time.sleep(0.05)
+        finally:
+            with lock:
+                active -= 1
+
+    for slot in controller._upload_workers[:2]:
+        slot.dispatcher.upload.connect(slot.worker.upload_file)
+        monkeypatch.setattr(slot.worker, "_stream_upload", fake_stream)
+        monkeypatch.setattr(slot.worker, "_wait_for_stable_file", lambda *_args: None)
+        monkeypatch.setattr(slot.worker, "_run_post_upload_action", lambda *_args: None)
+
+    for index in range(2):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        controller._queue_ingestion(str(path))
+
+    deadline = time.monotonic() + 10
+    while controller._queued_uploads and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+
+    assert len(queued_uploads) == 2
+    assert controller._queued_uploads == {}
+    assert max_active == 2
+
+
+def test_increasing_worker_limit_starts_additional_workers(
+    controller, queued_uploads, tmp_path
+):
+    if config.maximum_upload_workers_limit() < 3:
+        pytest.skip("Needs at least three local CPUs")
+    controller.window.maximum_upload_workers_input.setValue(3)
+    controller.window.save_settings_button.click()
+    assert controller.config.maximum_upload_workers == 3
+    assert len(controller._upload_workers) == 3
+    for slot in controller._upload_workers[2:]:
+        slot.dispatcher.upload.disconnect(slot.worker.upload_file)
+
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    for index in range(4):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        controller._queue_ingestion(str(path))
+
+    assert len(queued_uploads) == 3
+    assert len(controller._active_uploads) == 3
+    controller._handle_upload_finished(str(folder / "0.txt"), "/tempZone/home/alice/0.txt")
+    assert len(queued_uploads) == 4
 
 
 def test_pausing_an_initial_scan_preserves_remaining_files(
@@ -497,7 +661,7 @@ def test_saving_retry_settings_does_not_change_the_session(controller, tmp_path)
     controller.window.retry_first_delay_input.setValue(5)
     controller.window.retry_backoff_multiplier_input.setValue(2.0)
 
-    controller.window.save_retry_settings_button.click()
+    controller.window.save_settings_button.click()
 
     assert controller.config.retry.attempts == 3
     assert controller.config.retry.first_delay_in_seconds == 5
@@ -593,7 +757,10 @@ def test_vanished_folder_cancels_pending_uploads(controller, watched, tmp_path, 
         watched.rmdir()
         controller._handle_monitored_directory_deleted(str(watched))
 
-    assert str(watched) in controller.upload_worker._cancelled_monitored_roots
+    assert all(
+        str(watched) in slot.worker._cancelled_monitored_roots
+        for slot in controller._upload_workers
+    )
     assert str(watched) in controller.window.status_label.text()
 
 
@@ -602,7 +769,7 @@ def test_folder_still_on_disk_is_not_left_cancelled(controller, watched):
     # that follows clears the cancellation, so uploads carry on.
     controller._handle_monitored_directory_deleted(str(watched))
 
-    assert controller.upload_worker._cancelled_monitored_roots == set()
+    assert all(not slot.worker._cancelled_monitored_roots for slot in controller._upload_workers)
 
 
 @pytest.mark.parametrize("outcome", ["moved", "deleted", "renamed"])

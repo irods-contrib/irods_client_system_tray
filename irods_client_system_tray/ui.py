@@ -35,11 +35,13 @@ from PySide6.QtWidgets import (
 from .activity_log import ActivityLog
 from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
+    DEFAULT_MAXIMUM_UPLOAD_WORKERS,
     IRODSEnvironment,
     MonitoredDirectory,
     RetryConfig,
     RegexFilterConfig,
     find_overlapping_monitored_directory,
+    maximum_upload_workers_limit,
     normalize_directory,
     normalize_irods_zone_name,
     normalize_post_upload_action,
@@ -999,7 +1001,7 @@ class SettingsWindow(QWidget):
     add_folder_requested = Signal(object)
     remove_folder_requested = Signal(str)
     retry_failed_upload_requested = Signal(str)
-    save_retry_settings_requested = Signal()
+    save_settings_requested = Signal()
 
     def __init__(self, activity_log: ActivityLog | None = None) -> None:
         """Construct the minimalist settings UI used by the tray application."""
@@ -1049,7 +1051,7 @@ class SettingsWindow(QWidget):
         retry_layout.setContentsMargins(16, 16, 16, 16)
         retry_layout.setSpacing(12)
 
-        retry_title = QLabel("Upload retry")
+        retry_title = QLabel("Upload settings")
         retry_title.setObjectName("directoryCardTitle")
 
         retry_form_layout = QFormLayout()
@@ -1064,19 +1066,26 @@ class SettingsWindow(QWidget):
         self.retry_backoff_multiplier_input.setRange(1.0, 100.0)
         self.retry_backoff_multiplier_input.setDecimals(2)
         self.retry_backoff_multiplier_input.setSingleStep(0.1)
+        self.maximum_upload_workers_input = QSpinBox()
+        self.maximum_upload_workers_input.setObjectName("maximumUploadWorkers")
+        self.maximum_upload_workers_input.setRange(1, maximum_upload_workers_limit())
+        self.maximum_upload_workers_input.setValue(
+            min(DEFAULT_MAXIMUM_UPLOAD_WORKERS, maximum_upload_workers_limit())
+        )
 
         retry_form_layout.addRow("Retry attempts", self.retry_attempts_input)
         retry_form_layout.addRow("Initial delay (s)", self.retry_first_delay_input)
         retry_form_layout.addRow("Backoff multiplier", self.retry_backoff_multiplier_input)
+        retry_form_layout.addRow("Maximum upload workers", self.maximum_upload_workers_input)
 
         retry_layout.addWidget(retry_title)
         retry_layout.addLayout(retry_form_layout)
 
         settings_button_row = QHBoxLayout()
         settings_button_row.setSpacing(10)
-        self.save_retry_settings_button = QPushButton("Save Retry Settings")
-        self.save_retry_settings_button.clicked.connect(self._emit_save_retry_settings_requested)
-        settings_button_row.addWidget(self.save_retry_settings_button)
+        self.save_settings_button = QPushButton("Save Settings")
+        self.save_settings_button.clicked.connect(self._emit_save_settings_requested)
+        settings_button_row.addWidget(self.save_settings_button)
         settings_button_row.addStretch(1)
 
         directory_card = QFrame()
@@ -1269,6 +1278,15 @@ class SettingsWindow(QWidget):
             backoff_multiplier=self.retry_backoff_multiplier_input.value(),
         )
 
+    def set_maximum_upload_workers(self, workers: int) -> None:
+        """Show the configured worker limit, bounded by local CPU availability."""
+
+        self.maximum_upload_workers_input.setRange(1, maximum_upload_workers_limit())
+        self.maximum_upload_workers_input.setValue(workers)
+
+    def get_maximum_upload_workers(self) -> int:
+        return self.maximum_upload_workers_input.value()
+
     def set_status_message(self, message: str, *, is_error: bool = False) -> None:
         """Show a normal or error status message near the top of the window."""
 
@@ -1335,10 +1353,10 @@ class SettingsWindow(QWidget):
         local_path = item.data(Qt.ItemDataRole.UserRole)
         self.retry_failed_upload_requested.emit(local_path)
 
-    def _emit_save_retry_settings_requested(self, _checked: bool = False) -> None:
-        """Notify the controller that the user wants to persist retry settings."""
+    def _emit_save_settings_requested(self, _checked: bool = False) -> None:
+        """Notify the controller to save retry and worker settings."""
 
-        self.save_retry_settings_requested.emit()
+        self.save_settings_requested.emit()
 
     def _update_remove_button_state(self, *_args) -> None:
         """Enable removal only when the user has a directory selected in the list."""

@@ -30,6 +30,7 @@ APP_CONFIG_DIR = _default_config_dir()
 CONFIG_PATH = APP_CONFIG_DIR / "app_state.json"
 IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
 ACTIVITY_LOG_PATH = APP_CONFIG_DIR / "activity.log"
+DEFAULT_MAXIMUM_UPLOAD_WORKERS = 2
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"trash", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"
@@ -42,6 +43,9 @@ class AppConfig:
 
     is_monitoring_active: bool = True
     monitored_directories: list[MonitoredDirectory] = field(default_factory=list)
+    maximum_upload_workers: int = field(
+        default_factory=lambda: normalize_maximum_upload_workers(DEFAULT_MAXIMUM_UPLOAD_WORKERS)
+    )
     retry: RetryConfig = field(default_factory=lambda: RetryConfig())
     retry_by_user: dict[str, RetryConfig] = field(default_factory=dict)
 
@@ -102,6 +106,22 @@ def normalize_directory(path: str) -> str:
     """
 
     return str(Path(path).expanduser().resolve(strict=False))
+
+
+def maximum_upload_workers_limit() -> int:
+    """Return the number of logical CPUs available as a safe worker upper bound."""
+
+    return max(1, os.cpu_count() or 1)
+
+
+def normalize_maximum_upload_workers(value: object) -> int:
+    """Bound saved worker counts to the current machine's CPU count."""
+
+    try:
+        workers = int(value)
+    except (TypeError, ValueError, OverflowError):
+        workers = DEFAULT_MAXIMUM_UPLOAD_WORKERS
+    return min(max(1, workers), maximum_upload_workers_limit())
 
 
 def find_overlapping_monitored_directory(
@@ -397,6 +417,9 @@ class ConfigStore:
         return AppConfig(
             is_monitoring_active=bool(payload.get("is_monitoring_active", True)),
             monitored_directories=normalize_monitored_directories(directories),
+            maximum_upload_workers=normalize_maximum_upload_workers(
+                payload.get("maximum_upload_workers", DEFAULT_MAXIMUM_UPLOAD_WORKERS)
+            ),
             retry=normalize_retry_config(payload.get("retry")),
             retry_by_user=normalize_retry_map(payload.get("retry_by_user")),
         )
@@ -412,6 +435,7 @@ class ConfigStore:
         normalized_retry_by_user = normalize_retry_map(config.retry_by_user)
         payload = {
             "is_monitoring_active": bool(config.is_monitoring_active),
+            "maximum_upload_workers": normalize_maximum_upload_workers(config.maximum_upload_workers),
             "monitored_directories": [
                 {
                     "source_directory": directory.source_directory,
