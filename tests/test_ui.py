@@ -86,16 +86,22 @@ def test_session_summary_is_right_aligned_in_the_window_header(settings_window):
 
 
 def test_header_shows_worker_queue_and_recent_speed(settings_window):
-    settings_window.set_upload_summary(3, 2, 5, 12 * 1024 * 1024)
+    settings_window.set_upload_summary(3, 2, 5, 12 * 1024 * 1024, 3723)
 
     assert settings_window.upload_summary_label.text() == "Active Workers: 2/3"
-    assert settings_window.upload_queue_label.text() == "Queue: 5"
+    assert settings_window.upload_queue_label.text() == "Queue: 5 (ETA 1h 2m 3s)"
     assert settings_window.upload_throughput_label.text() == "Throughput: 12.0 MiB/s"
 
     settings_window.set_upload_summary(2, 0, 0, None)
     assert settings_window.upload_summary_label.text() == "Active Workers: 0/2"
-    assert settings_window.upload_queue_label.text() == "Queue: 0"
+    assert settings_window.upload_queue_label.text() == "Queue: 0 (ETA --)"
     assert settings_window.upload_throughput_label.text() == "Throughput: --"
+
+    settings_window.set_upload_summary(2, 0, 0, None, 0)
+    assert settings_window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 0s)"
+
+    settings_window.set_upload_summary(2, 1, 0, 2048, 4)
+    assert settings_window.upload_throughput_label.text() == "Throughput: 2.0 KiB/s"
 
 
 def test_session_summary_clears_when_no_connection_is_configured(settings_window):

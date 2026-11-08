@@ -18,6 +18,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Scan saved monitored folders after startup for files added while the app was closed.
 - Allow configuring simultaneous uploads, defaulting to two workers per machine.
 - Add automatic worker tuning and queue/throughput statistics in the window header.
+- Estimate time remaining for active and queued uploads from recent throughput.
 - Show intermediate upload progress as file data is transferred.
 - Include underlying errors and reported byte counts when a parallel upload fails.
 - Fix parallel uploads under Python 3.15 when Qt leaves a lazy executor unresolved.

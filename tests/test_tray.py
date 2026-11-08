@@ -506,24 +506,89 @@ def test_header_counts_pending_and_active_uploads(controller, queued_uploads, tm
 
     limit = controller.config.maximum_upload_workers
     assert controller.window.upload_summary_label.text() == f"Active Workers: {limit}/{limit}"
-    assert controller.window.upload_queue_label.text() == "Queue: 1"
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA --)"
+
+
+def test_header_eta_accounts_for_active_progress_and_waiting_files(
+    controller, queued_uploads, tmp_path
+):
+    controller.window.maximum_upload_workers_input.setValue(1)
+    controller.window.save_settings_button.click()
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    first = folder / "one.txt"
+    second = folder / "two.txt"
+    first.write_bytes(b"a" * 8)
+    second.write_bytes(b"b" * 4)
+    controller._queue_ingestion(str(first))
+    controller._queue_ingestion(str(second))
+    controller._recent_throughput = 2.0  # Bytes per second.
+    controller._update_upload_summary()
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA 0h 0m 6s)"
+
+    controller._handle_upload_progress(str(first), "/tempZone/home/alice/one.txt", 4, 8)
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA 0h 0m 4s)"
+
+    controller._handle_upload_progress(str(first), "/tempZone/home/alice/one.txt", 8, 8)
+    controller._handle_upload_finished(str(first), "/tempZone/home/alice/one.txt")
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 2s)"
+
+    controller._handle_upload_progress(str(second), "/tempZone/home/alice/two.txt", 2, 4)
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 1s)"
+    controller._handle_upload_finished(str(second), "/tempZone/home/alice/two.txt")
+    assert controller.window.upload_queue_label.text() == "Queue: 0 (ETA 0h 0m 0s)"
+
+
+def test_header_eta_is_unknown_without_speed_or_waiting_file_size(
+    controller, queued_uploads, tmp_path
+):
+    controller.window.maximum_upload_workers_input.setValue(1)
+    controller.window.save_settings_button.click()
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    active = folder / "active.txt"
+    active.write_text("data", encoding="utf-8")
+    controller._queue_ingestion(str(active))
+    controller._queue_ingestion(str(folder / "missing.txt"))
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA --)"
+
+    controller._recent_throughput = 100.0
+    controller._update_upload_summary()
+    assert controller.window.upload_queue_label.text() == "Queue: 1 (ETA --)"
 
 
 def test_header_uses_aggregate_throughput_of_overlapping_uploads(controller):
     from irods_client_system_tray.tray import UploadJob
 
+    finished_at = time.monotonic()
     first = UploadJob("/a", "/", "/tempZone")
     first.size_bytes = 10 * 1024 * 1024
-    first.started_at = 2.0
+    first.started_at = finished_at - 10
     second = UploadJob("/b", "/", "/tempZone")
     second.size_bytes = 10 * 1024 * 1024
-    second.started_at = 2.0
+    second.started_at = finished_at - 10
 
-    controller._record_completed_transfer(first, 12.0)
-    controller._record_completed_transfer(second, 12.0)
+    controller._record_completed_transfer(first, finished_at)
+    controller._record_completed_transfer(second, finished_at)
     controller._update_upload_summary()
 
     assert controller.window.upload_throughput_label.text() == "Throughput: 2.0 MiB/s"
+
+
+def test_old_transfer_speed_is_not_used_for_eta(controller):
+    from irods_client_system_tray.auto_workers import TransferSample
+
+    controller._recent_throughput = 1024 * 1024
+    controller._recent_transfers.append(TransferSample(1024, 1, 2))
+    controller._update_upload_summary()
+
+    assert controller.window.upload_throughput_label.text() == "Throughput: --"
 
 
 def test_automatic_mode_changes_active_capacity_when_backlogged(

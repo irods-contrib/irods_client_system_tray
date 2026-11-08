@@ -67,6 +67,14 @@ def _set_label_error_state(label: QLabel, is_error: bool) -> None:
     label.style().polish(label)
     
 
+def _format_throughput(bytes_per_second: float) -> str:
+    if bytes_per_second >= 1024 * 1024:
+        return f"{bytes_per_second / (1024 * 1024):.1f} MiB/s"
+    if bytes_per_second >= 1024:
+        return f"{bytes_per_second / 1024:.1f} KiB/s"
+    return f"{bytes_per_second:.1f} B/s"
+
+
 class LoginWorker(QObject):
     """Authenticate against iRODS on a background thread."""
 
@@ -1331,17 +1339,24 @@ class SettingsWindow(QWidget):
         if throughput is None:
             message += " · gathering transfer data"
         else:
-            message += f" · recent throughput {throughput / (1024 * 1024):.1f} MiB/s"
+            message += f" · recent throughput {_format_throughput(throughput)}"
         self.auto_worker_status_label.setText(message)
 
     def set_upload_summary(
-        self, workers: int, active: int, queued: int, throughput: float | None
+        self, workers: int, active: int, queued: int, throughput: float | None,
+        eta_seconds: int | None = None,
     ) -> None:
-        """Show live queue capacity and recent completed-upload throughput."""
+        """Show queue capacity, throughput, and estimated time remaining."""
 
         self.upload_summary_label.setText(f"Active Workers: {active}/{workers}")
-        self.upload_queue_label.setText(f"Queue: {queued}")
-        rate = "--" if throughput is None else f"{throughput / (1024 * 1024):.1f} MiB/s"
+        if eta_seconds is None:
+            eta = "--"
+        else:
+            hours, remainder = divmod(max(0, eta_seconds), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            eta = f"{hours}h {minutes}m {seconds}s"
+        self.upload_queue_label.setText(f"Queue: {queued} (ETA {eta})")
+        rate = "--" if throughput is None else _format_throughput(throughput)
         self.upload_throughput_label.setText(f"Throughput: {rate}")
 
     def _update_worker_mode_state(self, *_args) -> None:

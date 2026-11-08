@@ -78,6 +78,8 @@ Automatic mode starts at two workers and cautiously adjusts the limit from recen
 transfer throughput when files are waiting, up to a configurable CPU-capped ceiling.
 The main window header shows the active worker limit, waiting queue, and recent
 aggregate throughput. Measurements are kept in memory and reset on restart.
+The Queue line estimates time remaining from active and waiting file sizes at the
+recent throughput; it shows `ETA --` until a usable speed is available.
 
 ## Testing
 

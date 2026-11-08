@@ -7,6 +7,7 @@ from importlib.resources import files
 import os
 import re
 import time
+from math import ceil
 from collections import deque
 from pathlib import Path
 from threading import Thread
@@ -58,6 +59,7 @@ class UploadJob:
     status: str = "queued"
     started_at: float = 0.0
     size_bytes: int = 0
+    bytes_sent: int = 0
     retry_timer: QTimer | None = field(default=None, repr=False, compare=False)
 
 
@@ -747,7 +749,11 @@ class TrayController(QObject):
         self._stop_retry_timer(job)
         job.status = "queued"
         job.started_at = 0.0
-        job.size_bytes = 0
+        job.bytes_sent = 0
+        try:
+            job.size_bytes = Path(job.local_path).stat().st_size
+        except OSError:
+            job.size_bytes = 0
         self._refresh_failed_uploads()
         self._drain_upload_queue()
 
@@ -756,10 +762,43 @@ class TrayController(QObject):
 
     def _update_upload_summary(self) -> None:
         waiting = sum(job.status == "queued" for job in self._queued_uploads.values())
+        throughput = self._current_throughput()
         self.window.set_upload_summary(
             self._effective_upload_workers, len(self._active_uploads), waiting,
-            self._recent_throughput,
+            throughput, self._estimated_time_remaining_seconds(throughput),
         )
+
+    def _current_throughput(self) -> float | None:
+        if self._recent_transfers and time.monotonic() - max(
+            sample.finished_at for sample in self._recent_transfers
+        ) > 300:
+            return None
+        return self._recent_throughput
+
+    def _estimated_time_remaining_seconds(self, throughput: float | None) -> int | None:
+        """Estimate the active and ready-queue bytes at the last observed speed."""
+
+        jobs = [
+            job for job in self._queued_uploads.values()
+            if job.status in {"queued", "dispatched", "uploading"}
+        ]
+        if not jobs:
+            return 0
+        if (
+            not self._is_authenticated or not self.config.is_monitoring_active
+            or throughput is None or throughput <= 0
+        ):
+            return None
+
+        remaining_bytes = 0
+        for job in jobs:
+            if job.status == "queued" and job.size_bytes == 0:
+                try:
+                    job.size_bytes = Path(job.local_path).stat().st_size
+                except OSError:
+                    return None
+            remaining_bytes += max(0, job.size_bytes - job.bytes_sent)
+        return ceil(remaining_bytes / throughput)
 
     def _record_completed_transfer(self, job: UploadJob, finished_at: float) -> None:
         if job.size_bytes <= 0 or job.started_at <= 0:
@@ -782,7 +821,7 @@ class TrayController(QObject):
     def _show_auto_worker_status(self) -> None:
         if self._auto_workers is not None:
             self.window.set_auto_worker_status(
-                self._effective_upload_workers, self._recent_throughput
+                self._effective_upload_workers, self._current_throughput()
             )
 
     def _apply_auto_worker_change(self, new_limit: int | None) -> None:
@@ -953,7 +992,9 @@ class TrayController(QObject):
 
         job = self._queued_uploads.get(local_path)
         if job is not None:
-            job.size_bytes = max(job.size_bytes, total_bytes)
+            job.size_bytes = max(0, total_bytes)
+            job.bytes_sent = min(job.size_bytes, max(0, bytes_sent))
+        self._update_upload_summary()
         if total_bytes <= 0:
             self.window.set_status_message(f"Uploading {Path(local_path).name}...")
             return
