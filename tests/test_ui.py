@@ -745,6 +745,26 @@ def test_automatic_worker_controls_show_effective_count_and_throughput(settings_
     assert settings_window.auto_worker_status_label.isHidden()
 
 
+def test_write_chunk_controls_keep_separate_manual_values(settings_window):
+    assert settings_window.get_write_chunk_settings() == (False, 8, 4)
+    assert settings_window.single_write_chunk_input.isEnabled()
+
+    settings_window.set_write_chunk_settings(True, 4, 16)
+    settings_window.set_chunk_status(4, 8)
+
+    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
+    assert not settings_window.parallel_write_chunk_input.isEnabled()
+    assert "single 4 MiB · parallel 8 MiB" in settings_window.chunk_status_label.text()
+
+    settings_window.set_write_chunk_settings(False, 4, 16)
+    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+    assert settings_window.parallel_write_chunk_input.isEnabled()
+    assert settings_window.chunk_status_label.isHidden()
+
+    settings_window.set_chunk_status(8, 16, worker_cap=5)
+    assert "memory budget caps workers at 5" in settings_window.chunk_status_label.text()
+
+
 # --- post-upload cleanup in the add-folder dialog -------------------------------
 
 

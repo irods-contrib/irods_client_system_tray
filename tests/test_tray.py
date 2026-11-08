@@ -686,6 +686,153 @@ def test_manual_mode_restores_the_saved_manual_worker_count(controller):
     assert controller.config_store.load().automatic_upload_workers is False
 
 
+def test_manual_write_sizes_apply_to_single_and_parallel_jobs(
+    controller, queued_uploads, monkeypatch, tmp_path
+):
+    from irods import parallel as irods_parallel
+
+    if controller._effective_upload_workers < 2:
+        pytest.skip("Needs at least two local CPUs")
+    monkeypatch.setattr(irods_parallel, "COPY_BUF_SIZE", irods_parallel.COPY_BUF_SIZE)
+    controller.window.single_write_chunk_input.setCurrentIndex(
+        controller.window.single_write_chunk_input.findData(4)
+    )
+    controller.window.parallel_write_chunk_input.setCurrentIndex(
+        controller.window.parallel_write_chunk_input.findData(16)
+    )
+    controller.window.save_settings_button.click()
+
+    assert controller.config_store.load().parallel_write_chunk_size_mib == 16
+    assert irods_parallel.COPY_BUF_SIZE == 16 * 1024 * 1024
+
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    small = folder / "small.txt"
+    small.write_bytes(b"data")
+    large = folder / "large.txt"
+    with large.open("wb") as output:
+        output.truncate(33 * 1024 * 1024)
+    controller._queue_ingestion(str(small))
+    controller._queue_ingestion(str(large))
+
+    assert controller._queued_uploads[str(small)].chunk_size_mib == 4
+    assert controller._queued_uploads[str(large)].chunk_size_mib == 16
+    assert controller._queued_uploads[str(large)].is_parallel
+    assert {slot.worker.write_buffer_size for slot in controller._upload_workers[:2]} == {
+        4 * 1024 * 1024, 16 * 1024 * 1024
+    }
+
+
+def test_single_chunk_trial_changes_the_next_dispatched_job(
+    controller, queued_uploads, tmp_path
+):
+    controller.window.automatic_write_chunks_checkbox.setChecked(True)
+    controller.window.save_settings_button.click()
+    tuner = controller._chunk_tuners[False]
+    tuner.MIN_SAMPLES = 1
+    tuner.MIN_WINDOW_SECONDS = 0
+    assert controller.config_store.load().automatic_write_chunks is True
+
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    for index in range(4):
+        path = folder / f"{index}.txt"
+        path.write_bytes(b"data")
+        controller._queue_ingestion(str(path))
+
+    path = str(folder / "0.txt")
+    controller._handle_upload_started(path, "/tempZone/home/alice/0.txt")
+    controller._queued_uploads[path].started_at = time.monotonic() - 10
+    controller._handle_upload_progress(path, "/tempZone/home/alice/0.txt", 4, 4)
+    controller._handle_upload_finished(path, "/tempZone/home/alice/0.txt")
+
+    assert controller._single_chunk_mib == 16
+    assert controller._queued_uploads[str(folder / "2.txt")].chunk_size_mib == 16
+
+
+def test_parallel_chunk_change_waits_until_in_flight_uploads_finish(
+    controller, queued_uploads, tmp_path, monkeypatch
+):
+    from irods import parallel as irods_parallel
+
+    if controller._effective_upload_workers < 2:
+        pytest.skip("Needs at least two local CPUs")
+    monkeypatch.setattr(irods_parallel, "COPY_BUF_SIZE", irods_parallel.COPY_BUF_SIZE)
+    controller.window.automatic_write_chunks_checkbox.setChecked(True)
+    controller.window.save_settings_button.click()
+    tuner = controller._chunk_tuners[True]
+    tuner.MIN_SAMPLES = 1
+    tuner.MIN_WINDOW_SECONDS = 0
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    for index in range(3):
+        path = folder / f"{index}.bin"
+        with path.open("wb") as output:
+            output.truncate(33 * 1024 * 1024)
+        controller._queue_ingestion(str(path))
+
+    first = str(folder / "0.bin")
+    controller._handle_upload_started(first, "/tempZone/home/alice/0.bin")
+    controller._queued_uploads[first].started_at = time.monotonic() - 10
+    controller._handle_upload_progress(
+        first, "/tempZone/home/alice/0.bin", 33 * 1024 * 1024, 33 * 1024 * 1024
+    )
+    controller._handle_upload_finished(first, "/tempZone/home/alice/0.bin")
+
+    assert controller._pending_parallel_chunk_mib == 8
+    assert irods_parallel.COPY_BUF_SIZE == 4 * 1024 * 1024
+    assert len(queued_uploads) == 2  # Do not dispatch across the global change.
+
+    controller._handle_upload_finished(str(folder / "1.bin"), "/tempZone/home/alice/1.bin")
+
+    assert controller._pending_parallel_chunk_mib is None
+    assert irods_parallel.COPY_BUF_SIZE == 8 * 1024 * 1024
+    assert controller._queued_uploads[str(folder / "2.bin")].chunk_size_mib == 8
+    assert len(queued_uploads) == 3
+
+
+def test_chunk_probe_does_not_probe_worker_count_at_the_same_time(
+    controller, queued_uploads, tmp_path
+):
+    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_write_chunks_checkbox.setChecked(True)
+    controller.window.save_settings_button.click()
+    controller._chunk_tuners[False].MIN_SAMPLES = 1
+    controller._chunk_tuners[False].MIN_WINDOW_SECONDS = 0
+    controller._auto_workers.MIN_SAMPLES = 1
+    controller._auto_workers.MIN_WINDOW_SECONDS = 0
+    initial_workers = controller._effective_upload_workers
+
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    for index in range(4):
+        path = folder / f"{index}.txt"
+        path.write_bytes(b"data")
+        controller._queue_ingestion(str(path))
+
+    path = str(folder / "0.txt")
+    controller._handle_upload_started(path, "/tempZone/home/alice/0.txt")
+    controller._queued_uploads[path].started_at = time.monotonic() - 10
+    controller._handle_upload_finished(path, "/tempZone/home/alice/0.txt")
+
+    assert controller._chunk_tuners[False].probing
+    assert controller._single_chunk_mib == 16
+    assert controller._auto_workers.current == initial_workers
+    assert not controller._auto_workers.probing
+
+
 def test_pausing_an_initial_scan_preserves_remaining_files(
     controller, queued_uploads, qapp, monkeypatch, tmp_path
 ):

@@ -78,6 +78,11 @@ Automatic mode starts at two workers and cautiously adjusts the limit from recen
 transfer throughput when files are waiting, up to a configurable CPU-capped ceiling.
 The main window header shows the active worker limit, waiting queue, and recent
 aggregate throughput. Measurements are kept in memory and reset on restart.
+Write sizes can also be set manually or tuned automatically for single-threaded
+and parallel PUTs separately (4, 8, or 16 MiB). Automatic worker and write-size
+trials do not run together. Parallel writes use a client-wide setting, so new
+uploads briefly wait while active transfers finish before it changes. The tuner
+estimates a 256 MiB budget for workers × parallel threads × write size.
 The Queue line shows remaining bytes and estimates time from active and waiting
 files at the recent throughput. It shows `ETA --` until a usable speed is available.
 Throughput drops to zero after five seconds without transfer activity.

@@ -18,6 +18,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Scan saved monitored folders after startup for files added while the app was closed.
 - Allow configuring simultaneous uploads, defaulting to two workers per machine.
 - Add automatic worker tuning and queue/throughput statistics in the window header.
+- Tune single and parallel PUT write sizes separately within a bounded memory budget.
 - Show remaining upload bytes and a compact ETA; zero idle throughput after five seconds.
 - Show intermediate upload progress as file data is transferred.
 - Include underlying errors and reported byte counts when a parallel upload fails.

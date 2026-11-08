@@ -32,6 +32,9 @@ IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
 ACTIVITY_LOG_PATH = APP_CONFIG_DIR / "activity.log"
 DEFAULT_MAXIMUM_UPLOAD_WORKERS = 2
 DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING = 4
+WRITE_CHUNK_SIZES_MIB = (4, 8, 16)
+DEFAULT_SINGLE_WRITE_CHUNK_MIB = 8
+DEFAULT_PARALLEL_WRITE_CHUNK_MIB = 4
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"trash", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"
@@ -53,6 +56,9 @@ class AppConfig:
             DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING
         )
     )
+    automatic_write_chunks: bool = False
+    single_write_chunk_size_mib: int = DEFAULT_SINGLE_WRITE_CHUNK_MIB
+    parallel_write_chunk_size_mib: int = DEFAULT_PARALLEL_WRITE_CHUNK_MIB
     retry: RetryConfig = field(default_factory=lambda: RetryConfig())
     retry_by_user: dict[str, RetryConfig] = field(default_factory=dict)
 
@@ -129,6 +135,14 @@ def normalize_maximum_upload_workers(value: object) -> int:
     except (TypeError, ValueError, OverflowError):
         workers = DEFAULT_MAXIMUM_UPLOAD_WORKERS
     return min(max(1, workers), maximum_upload_workers_limit())
+
+
+def normalize_write_chunk_size(value: object, default: int) -> int:
+    try:
+        size = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return size if size in WRITE_CHUNK_SIZES_MIB else default
 
 
 def find_overlapping_monitored_directory(
@@ -433,6 +447,13 @@ class ConfigStore:
                     "automatic_upload_worker_ceiling", DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING
                 )
             ),
+            automatic_write_chunks=payload.get("automatic_write_chunks") is True,
+            single_write_chunk_size_mib=normalize_write_chunk_size(
+                payload.get("single_write_chunk_size_mib"), DEFAULT_SINGLE_WRITE_CHUNK_MIB
+            ),
+            parallel_write_chunk_size_mib=normalize_write_chunk_size(
+                payload.get("parallel_write_chunk_size_mib"), DEFAULT_PARALLEL_WRITE_CHUNK_MIB
+            ),
             retry=normalize_retry_config(payload.get("retry")),
             retry_by_user=normalize_retry_map(payload.get("retry_by_user")),
         )
@@ -452,6 +473,13 @@ class ConfigStore:
             "automatic_upload_workers": bool(config.automatic_upload_workers),
             "automatic_upload_worker_ceiling": normalize_maximum_upload_workers(
                 config.automatic_upload_worker_ceiling
+            ),
+            "automatic_write_chunks": bool(config.automatic_write_chunks),
+            "single_write_chunk_size_mib": normalize_write_chunk_size(
+                config.single_write_chunk_size_mib, DEFAULT_SINGLE_WRITE_CHUNK_MIB
+            ),
+            "parallel_write_chunk_size_mib": normalize_write_chunk_size(
+                config.parallel_write_chunk_size_mib, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
             ),
             "monitored_directories": [
                 {
