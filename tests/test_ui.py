@@ -162,6 +162,30 @@ def test_login_opens_without_heading_subtitle_or_initial_status(login_dialog):
     assert login_dialog.status_label.isHidden()
 
 
+@pytest.mark.parametrize("previous_login", [True, False])
+def test_login_focuses_password_only_when_connection_fields_are_filled(
+    qapp, previous_login
+):
+    environment = IRODSEnvironment(
+        irods_host="irods.example.org" if previous_login else "",
+        irods_user_name="alice",
+        irods_zone_name="tempZone",
+    )
+    dialog = LoginDialog(environment)
+
+    try:
+        dialog.show()
+        qapp.processEvents()
+
+        if previous_login:
+            assert dialog.focusWidget() is dialog.password_input
+        else:
+            assert dialog.focusWidget() is not dialog.password_input
+        assert dialog.password_input.text() == ""
+    finally:
+        dialog.hide()
+
+
 @pytest.mark.parametrize(
     ("host", "port", "zone", "user", "password", "expected"),
     [
