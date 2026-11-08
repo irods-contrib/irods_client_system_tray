@@ -13,8 +13,11 @@ but only ever receives queued_uploads paths.
 from __future__ import annotations
 
 import json
+import time
+from threading import Thread
 
 import pytest
+from PySide6.QtCore import QEvent, QObject
 
 from irods_client_system_tray import config
 from irods_client_system_tray.config import (
@@ -553,6 +556,45 @@ def test_upload_progress_is_reported_in_the_status_line(
     )
 
     assert controller.window.status_label.text() == expected
+
+
+def test_progress_updates_repaint_the_status_line_during_transfer(controller, qapp):
+    painted_messages = []
+
+    class PaintRecorder(QObject):
+        def eventFilter(self, watched, event):  # noqa: N802
+            if event.type() == QEvent.Type.Paint:
+                painted_messages.append(watched.text())
+            return False
+
+    recorder = PaintRecorder()
+    controller.window.status_label.installEventFilter(recorder)
+    controller.window.show()
+    qapp.processEvents()
+
+    def send_progress():
+        for amount in (0, 25, 50, 75, 100):
+            controller.upload_worker.upload_progress.emit(
+                "/watched/report.csv", "/tempZone/x", amount, 100
+            )
+            time.sleep(0.1)
+
+    thread = Thread(target=send_progress)
+    try:
+        thread.start()
+        while thread.is_alive():
+            qapp.processEvents()
+            time.sleep(0.005)
+        thread.join()
+        qapp.processEvents()
+
+        assert "Uploading report.csv: 25%" in painted_messages
+        assert "Uploading report.csv: 50%" in painted_messages
+        assert "Uploading report.csv: 75%" in painted_messages
+    finally:
+        thread.join()
+        controller.window.status_label.removeEventFilter(recorder)
+        controller.window.hide()
 
 
 def test_finished_upload_is_released_for_retry(controller, queued_uploads, watched_file):

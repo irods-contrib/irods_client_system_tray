@@ -168,6 +168,8 @@ def test_stream_upload_reports_chunk_progress(
     assert progress == [
         (str(local_file), logical_path, bytes_sent, total_bytes) for bytes_sent in expected
     ]
+    assert worker.UPLOAD_WRITE_BUFFER_SIZE == 8 * 1024 * 1024
+    assert fake_session.data_objects.WRITE_BUFFER_SIZE == worker.UPLOAD_WRITE_BUFFER_SIZE
 
 
 def test_stream_upload_reports_completion_if_client_skips_progress_callbacks(
