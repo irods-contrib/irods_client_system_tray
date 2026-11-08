@@ -1006,12 +1006,12 @@ class SettingsWindow(QWidget):
         super().__init__()
         self.activity_log = activity_log or ActivityLog()
         self.setObjectName("settingsWindow")
-        self.setWindowTitle("Ingestion Monitor")
+        self.setWindowTitle("iRODS Ingest")
         self.resize(640, 460)
         self._irods_zone_for_new_folders = "tempZone"
         self._monitored_directories: list[MonitoredDirectory] = []
 
-        self.title_label = QLabel("Directory Ingestion")
+        self.title_label = QLabel("iRODS Ingest")
         self.title_label.setObjectName("settingsTitleLabel")
 
         self.subtitle_label = QLabel("Monitor folders in the background from the system tray.")
