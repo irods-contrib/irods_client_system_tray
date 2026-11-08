@@ -218,12 +218,9 @@ class LoginDialog(QDialog):
         button_row = QHBoxLayout()
         button_row.addStretch(1)
 
-        self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
         self.sign_in_button = QPushButton("Login")
         self.sign_in_button.clicked.connect(self._attempt_login)
 
-        button_row.addWidget(self.cancel_button)
         button_row.addWidget(self.sign_in_button)
 
         layout = QVBoxLayout(self)
@@ -292,7 +289,6 @@ class LoginDialog(QDialog):
             return
 
         self.sign_in_button.setEnabled(False)
-        self.cancel_button.setEnabled(False)
         self._set_status_message("Logging in to iRODS...")
         self._pending_login = (
             entered_host,
@@ -472,7 +468,6 @@ class LoginDialog(QDialog):
         self.user_name_input.setEnabled(not is_authenticating)
         self.password_input.setEnabled(not is_authenticating)
         self.sign_in_button.setEnabled(not is_authenticating)
-        self.cancel_button.setEnabled(not is_authenticating)
 
     def _store_authentication_result(self, succeeded: bool, result: object) -> None:
         """Capture the worker outcome until the thread has fully stopped."""

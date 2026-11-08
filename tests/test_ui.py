@@ -13,7 +13,7 @@ import threading
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton
 
 from irods_client_system_tray.activity_log import ActivityLog
 from irods_client_system_tray.config import (
@@ -159,6 +159,7 @@ def test_login_has_heading_but_no_subtitle_or_initial_status(login_dialog):
     assert login_dialog.windowTitle() == "iRODS Ingest"
     assert "iRODS Login" in labels
     assert login_dialog.sign_in_button.text() == "Login"
+    assert [button.text() for button in login_dialog.findChildren(QPushButton)] == ["Login"]
     assert not any("Enter your iRODS connection details" in text for text in labels)
     assert login_dialog.status_label.text() == ""
     assert login_dialog.status_label.isHidden()
