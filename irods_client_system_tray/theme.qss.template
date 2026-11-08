@@ -18,6 +18,11 @@ QLabel#sessionHostLabel {
     color: $muted;
     font-size: $font_sm;
 }
+QLabel#uploadSummaryLabel,
+QLabel#uploadThroughputLabel {
+    color: $muted;
+    font-size: $font_sm;
+}
 QCheckBox#monitorToggleCheckbox {
     color: $text;
     font-size: $font_lg;

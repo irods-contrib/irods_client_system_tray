@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from importlib.resources import files
 import os
 import re
+import time
+from collections import deque
 from pathlib import Path
 from threading import Thread
 from typing import Iterator
@@ -34,6 +36,7 @@ from .config import (
     normalize_target_collection_for_zone,
     rezone_target_collection,
 )
+from .auto_workers import AutomaticUploadWorkers, TransferSample
 from .irods_worker import IRODSUploadWorker
 from .monitor import MonitorManager
 from .ui import LoginDialog, SettingsWindow
@@ -53,6 +56,8 @@ class UploadJob:
     logical_path: str = ""
     last_error: str = ""
     status: str = "queued"
+    started_at: float = 0.0
+    size_bytes: int = 0
     retry_timer: QTimer | None = field(default=None, repr=False, compare=False)
 
 
@@ -102,6 +107,18 @@ class TrayController(QObject):
         self.config.maximum_upload_workers = normalize_maximum_upload_workers(
             self.config.maximum_upload_workers
         )
+        self.config.automatic_upload_worker_ceiling = normalize_maximum_upload_workers(
+            self.config.automatic_upload_worker_ceiling
+        )
+        self._auto_workers = (
+            AutomaticUploadWorkers(self.config.automatic_upload_worker_ceiling)
+            if self.config.automatic_upload_workers else None
+        )
+        self._effective_upload_workers = (
+            self._auto_workers.current if self._auto_workers else self.config.maximum_upload_workers
+        )
+        self._recent_transfers: deque[TransferSample] = deque(maxlen=8)
+        self._recent_throughput: float | None = None
         self._upload_workers: list[UploadWorkerSlot] = []
         self._active_uploads: dict[str, UploadWorkerSlot] = {}
         self._pending_initial_scans: set[str] = {
@@ -142,6 +159,11 @@ class TrayController(QObject):
         self.window.set_irods_environment(self.environment)
         self.window.set_retry_config(self.config.retry)
         self.window.set_maximum_upload_workers(self.config.maximum_upload_workers)
+        self.window.set_automatic_upload_workers(
+            self.config.automatic_upload_workers, self.config.automatic_upload_worker_ceiling
+        )
+        self._show_auto_worker_status()
+        self._update_upload_summary()
         if self._is_authenticated:
             self._sync_from_config()
         else:
@@ -314,6 +336,8 @@ class TrayController(QObject):
         self.config.is_monitoring_active = is_active
         if not is_active:
             self._pause_pending_retries()
+            if self._auto_workers is not None:
+                self._auto_workers.reset_observations()
         self._persist_and_sync()
 
     def exit_application(self) -> None:
@@ -348,17 +372,32 @@ class TrayController(QObject):
         self.config.maximum_upload_workers = normalize_maximum_upload_workers(
             self.window.get_maximum_upload_workers()
         )
+        automatic = self.window.get_automatic_upload_workers()
+        ceiling = normalize_maximum_upload_workers(
+            self.window.get_automatic_upload_worker_ceiling()
+        )
+        if automatic != self.config.automatic_upload_workers:
+            self._auto_workers = AutomaticUploadWorkers(ceiling) if automatic else None
+        elif automatic and self._auto_workers is not None:
+            self._auto_workers.set_ceiling(ceiling)
+        self.config.automatic_upload_workers = automatic
+        self.config.automatic_upload_worker_ceiling = ceiling
+        self._effective_upload_workers = (
+            self._auto_workers.current if self._auto_workers else self.config.maximum_upload_workers
+        )
         self.config.retry = normalize_retry_config(self.window.get_retry_config())
         user_key = build_retry_settings_user_key(self.environment)
         self.config.retry_by_user[user_key] = self.config.retry
         self.config_store.save(self.config)
         self.window.set_retry_config(self.config.retry)
         self.window.set_maximum_upload_workers(self.config.maximum_upload_workers)
+        self.window.set_automatic_upload_workers(automatic, ceiling)
+        self._show_auto_worker_status()
         self._ensure_upload_workers()
         self._drain_upload_queue()
         self.window.set_status_message("Saved upload settings.")
         self.window.append_activity(
-            f"saved upload settings -> maximum workers={self.config.maximum_upload_workers}, "
+            f"saved upload settings -> maximum workers={self._effective_upload_workers}, "
             f"retry attempts={self.config.retry.attempts}"
         )
 
@@ -427,7 +466,7 @@ class TrayController(QObject):
     def _ensure_upload_workers(self) -> None:
         """Create workers as needed; idle extras stay parked if the limit is reduced."""
 
-        while len(self._upload_workers) < self.config.maximum_upload_workers:
+        while len(self._upload_workers) < self._effective_upload_workers:
             thread = QThread(self)
             worker = IRODSUploadWorker(self.environment if self._is_authenticated else None)
             worker.moveToThread(thread)
@@ -613,6 +652,10 @@ class TrayController(QObject):
             self.config_store.save(self.config)
 
         self._is_authenticated = True
+        if self._auto_workers is not None:
+            self._auto_workers = AutomaticUploadWorkers(self.config.automatic_upload_worker_ceiling)
+            self._effective_upload_workers = self._auto_workers.current
+            self._show_auto_worker_status()
         self.environment = environment
         self.config.retry = self._retry_config_for_environment(environment)
         self.irods_environment_store.save(self._without_password(environment))
@@ -701,8 +744,54 @@ class TrayController(QObject):
         self._failed_uploads.pop(job.local_path, None)
         self._stop_retry_timer(job)
         job.status = "queued"
+        job.started_at = 0.0
+        job.size_bytes = 0
         self._refresh_failed_uploads()
         self._drain_upload_queue()
+
+    def _has_pending_uploads(self) -> bool:
+        return any(job.status == "queued" for job in self._queued_uploads.values())
+
+    def _update_upload_summary(self) -> None:
+        waiting = sum(job.status == "queued" for job in self._queued_uploads.values())
+        self.window.set_upload_summary(
+            self._effective_upload_workers, len(self._active_uploads), waiting,
+            self._recent_throughput,
+        )
+
+    def _record_completed_transfer(self, job: UploadJob, finished_at: float) -> None:
+        if job.size_bytes <= 0 or job.started_at <= 0:
+            return
+        if self._recent_transfers and job.started_at - max(
+            sample.finished_at for sample in self._recent_transfers
+        ) > 60:
+            self._recent_transfers.clear()
+        self._recent_transfers.append(
+            TransferSample(job.size_bytes, job.started_at, finished_at)
+        )
+        elapsed = max(sample.finished_at for sample in self._recent_transfers) - min(
+            sample.started_at for sample in self._recent_transfers
+        )
+        if elapsed > 0:
+            self._recent_throughput = sum(
+                sample.bytes_transferred for sample in self._recent_transfers
+            ) / elapsed
+
+    def _show_auto_worker_status(self) -> None:
+        if self._auto_workers is not None:
+            self.window.set_auto_worker_status(
+                self._effective_upload_workers, self._recent_throughput
+            )
+
+    def _apply_auto_worker_change(self, new_limit: int | None) -> None:
+        if self._auto_workers is None:
+            return
+        if new_limit is not None and new_limit != self._effective_upload_workers:
+            self._effective_upload_workers = new_limit
+            self._ensure_upload_workers()
+            self.window.append_activity(f"automatic upload workers -> {new_limit}")
+        self._show_auto_worker_status()
+        self._update_upload_summary()
 
     def _drain_upload_queue(self) -> None:
         """Dispatch pending files without exceeding the configured worker limit."""
@@ -711,13 +800,14 @@ class TrayController(QObject):
             self._is_shutting_down
             or not self._is_authenticated
             or not self.config.is_monitoring_active
-            or len(self._active_uploads) >= self.config.maximum_upload_workers
+            or len(self._active_uploads) >= self._effective_upload_workers
         ):
+            self._update_upload_summary()
             return
 
-        workers = self._upload_workers[:self.config.maximum_upload_workers]
+        workers = self._upload_workers[:self._effective_upload_workers]
         for job in self._queued_uploads.values():
-            if len(self._active_uploads) >= self.config.maximum_upload_workers:
+            if len(self._active_uploads) >= self._effective_upload_workers:
                 break
             if job.status != "queued":
                 continue
@@ -736,6 +826,7 @@ class TrayController(QObject):
             )
             self.queue_upload.emit(*args)
             slot.dispatcher.upload.emit(*args)
+        self._update_upload_summary()
 
     def _release_upload_worker(self, local_path: str) -> None:
         slot = self._active_uploads.pop(local_path, None)
@@ -840,6 +931,11 @@ class TrayController(QObject):
         if job is not None:
             job.status = "uploading"
             job.logical_path = logical_path
+            job.started_at = time.monotonic()
+            try:
+                job.size_bytes = Path(local_path).stat().st_size
+            except OSError:
+                pass  # The upload worker reports the missing file separately.
 
         self.window.set_status_message(f"Uploading {Path(local_path).name} to iRODS...")
         self.window.append_activity(f"uploading -> {local_path} to {logical_path}")
@@ -853,6 +949,9 @@ class TrayController(QObject):
     ) -> None:
         """Show coarse-grained upload progress without blocking the UI thread."""
 
+        job = self._queued_uploads.get(local_path)
+        if job is not None:
+            job.size_bytes = max(job.size_bytes, total_bytes)
         if total_bytes <= 0:
             self.window.set_status_message(f"Uploading {Path(local_path).name}...")
             return
@@ -885,6 +984,15 @@ class TrayController(QObject):
         self.window.set_status_message(f"Uploaded {Path(local_path).name} to iRODS.")
         self.window.append_activity(f"uploaded -> {local_path} to {logical_path}")
         self._release_upload_worker(local_path)
+        finished_at = time.monotonic()
+        if job is not None:
+            self._record_completed_transfer(job, finished_at)
+        if job is not None and self._auto_workers is not None:
+            changed = self._auto_workers.record_success(
+                job.size_bytes, job.started_at, finished_at,
+                backlogged=self._has_pending_uploads(),
+            )
+            self._apply_auto_worker_change(changed)
         self._drain_upload_queue()
 
     def _handle_upload_warning(self, local_path: str, message: str) -> None:
@@ -898,6 +1006,11 @@ class TrayController(QObject):
 
         self._release_upload_worker(local_path)
         job = self._queued_uploads.get(local_path)
+        if job is not None and self._auto_workers is not None:
+            changed = self._auto_workers.record_failure(
+                local_path, message, time.monotonic(), backlogged=self._has_pending_uploads()
+            )
+            self._apply_auto_worker_change(changed)
         if job is not None:
             job.last_error = message
             if not self.config.is_monitoring_active:
@@ -1153,9 +1266,14 @@ class TrayController(QObject):
         self._queued_uploads.clear()
         self._failed_uploads.clear()
         self._active_uploads.clear()
+        self._recent_transfers.clear()
+        self._recent_throughput = None
         for slot in self._upload_workers:
             slot.busy_path = None
+        if self._auto_workers is not None:
+            self._auto_workers.reset_observations()
         self._refresh_failed_uploads()
+        self._update_upload_summary()
 
     def _refresh_failed_uploads(self) -> None:
         """Push the latest failed-upload snapshot into the Overview tab."""

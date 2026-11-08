@@ -72,6 +72,10 @@ added while the app was closed are picked up.
 The Settings tab controls retry behavior and the maximum number of files uploaded
 at once. Upload workers default to two, capped at the machine's logical CPU count.
 This limit is separate from iRODS's parallel threads for a single large file.
+Automatic mode starts at two workers and cautiously adjusts the limit from recent
+transfer throughput when files are waiting, up to a configurable CPU-capped ceiling.
+The main window header shows the active worker limit, waiting queue, and recent
+aggregate throughput. Measurements are kept in memory and reset on restart.
 
 ## Testing
 

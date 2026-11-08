@@ -31,6 +31,7 @@ CONFIG_PATH = APP_CONFIG_DIR / "app_state.json"
 IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
 ACTIVITY_LOG_PATH = APP_CONFIG_DIR / "activity.log"
 DEFAULT_MAXIMUM_UPLOAD_WORKERS = 2
+DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING = 4
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"trash", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"
@@ -45,6 +46,12 @@ class AppConfig:
     monitored_directories: list[MonitoredDirectory] = field(default_factory=list)
     maximum_upload_workers: int = field(
         default_factory=lambda: normalize_maximum_upload_workers(DEFAULT_MAXIMUM_UPLOAD_WORKERS)
+    )
+    automatic_upload_workers: bool = False
+    automatic_upload_worker_ceiling: int = field(
+        default_factory=lambda: normalize_maximum_upload_workers(
+            DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING
+        )
     )
     retry: RetryConfig = field(default_factory=lambda: RetryConfig())
     retry_by_user: dict[str, RetryConfig] = field(default_factory=dict)
@@ -420,6 +427,12 @@ class ConfigStore:
             maximum_upload_workers=normalize_maximum_upload_workers(
                 payload.get("maximum_upload_workers", DEFAULT_MAXIMUM_UPLOAD_WORKERS)
             ),
+            automatic_upload_workers=payload.get("automatic_upload_workers") is True,
+            automatic_upload_worker_ceiling=normalize_maximum_upload_workers(
+                payload.get(
+                    "automatic_upload_worker_ceiling", DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING
+                )
+            ),
             retry=normalize_retry_config(payload.get("retry")),
             retry_by_user=normalize_retry_map(payload.get("retry_by_user")),
         )
@@ -436,6 +449,10 @@ class ConfigStore:
         payload = {
             "is_monitoring_active": bool(config.is_monitoring_active),
             "maximum_upload_workers": normalize_maximum_upload_workers(config.maximum_upload_workers),
+            "automatic_upload_workers": bool(config.automatic_upload_workers),
+            "automatic_upload_worker_ceiling": normalize_maximum_upload_workers(
+                config.automatic_upload_worker_ceiling
+            ),
             "monitored_directories": [
                 {
                     "source_directory": directory.source_directory,

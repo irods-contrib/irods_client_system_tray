@@ -79,6 +79,19 @@ def test_session_summary_is_right_aligned_in_the_window_header(settings_window):
     assert settings_window.tabs.widget(0).findChildren(QLabel, "sessionUserZoneLabel") == []
     assert settings_window.session_summary_label.alignment() & Qt.AlignmentFlag.AlignRight
     assert settings_window.session_host_label.alignment() & Qt.AlignmentFlag.AlignRight
+    assert settings_window.upload_summary_label.parent() is settings_window
+    assert settings_window.upload_summary_label.alignment() & Qt.AlignmentFlag.AlignRight
+    assert settings_window.upload_throughput_label.alignment() & Qt.AlignmentFlag.AlignRight
+
+
+def test_header_shows_worker_queue_and_recent_speed(settings_window):
+    settings_window.set_upload_summary(3, 2, 5, 12 * 1024 * 1024)
+
+    assert settings_window.upload_summary_label.text() == "Workers: 3 (2 active) · Queued: 5"
+    assert settings_window.upload_throughput_label.text() == "Recent throughput: 12.0 MiB/s"
+
+    settings_window.set_upload_summary(2, 0, 0, None)
+    assert settings_window.upload_throughput_label.text() == "Recent throughput: gathering data"
 
 
 def test_session_summary_clears_when_no_connection_is_configured(settings_window):
@@ -681,6 +694,28 @@ def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
     window.set_maximum_upload_workers(2)
     assert window.get_maximum_upload_workers() == 1
     assert window.maximum_upload_workers_input.maximum() == 1
+
+
+def test_automatic_worker_controls_show_effective_count_and_throughput(settings_window):
+    assert not settings_window.get_automatic_upload_workers()
+    assert settings_window.maximum_upload_workers_input.isEnabled()
+    assert not settings_window.automatic_upload_worker_ceiling_input.isEnabled()
+
+    settings_window.set_automatic_upload_workers(True, 3)
+    settings_window.set_auto_worker_status(2, 3 * 1024 * 1024)
+
+    assert settings_window.get_automatic_upload_workers()
+    assert settings_window.get_automatic_upload_worker_ceiling() == min(
+        3, config_module.maximum_upload_workers_limit()
+    )
+    assert not settings_window.maximum_upload_workers_input.isEnabled()
+    assert settings_window.automatic_upload_worker_ceiling_input.isEnabled()
+    assert "Currently using 2 upload workers" in settings_window.auto_worker_status_label.text()
+    assert "3.0 MiB/s" in settings_window.auto_worker_status_label.text()
+
+    settings_window.set_automatic_upload_workers(False, 3)
+    assert settings_window.maximum_upload_workers_input.isEnabled()
+    assert settings_window.auto_worker_status_label.isHidden()
 
 
 # --- post-upload cleanup in the add-folder dialog -------------------------------

@@ -145,6 +145,22 @@ def test_upload_worker_limit_survives_restart_and_is_clamped_on_load(tmp_path, m
     assert store.load().maximum_upload_workers == 4
 
 
+def test_automatic_upload_worker_settings_survive_restart(tmp_path, monkeypatch):
+    monkeypatch.setattr(config_module.os, "cpu_count", lambda: 3)
+    store = ConfigStore(path=tmp_path / "app_state.json")
+    assert store.load().automatic_upload_workers is False
+
+    store.save(AppConfig(automatic_upload_workers=True, automatic_upload_worker_ceiling=99))
+
+    assert store.load().automatic_upload_workers is True
+    assert store.load().automatic_upload_worker_ceiling == 3
+    payload = json.loads(store.path.read_text(encoding="utf-8"))
+    assert payload["automatic_upload_worker_ceiling"] == 3
+
+    store.path.write_text('{"automatic_upload_workers": "false"}', encoding="utf-8")
+    assert store.load().automatic_upload_workers is False
+
+
 def test_corrupt_settings_file_falls_back_to_defaults(tmp_path):
     # Checks the app still opens if its settings file is missing or damaged. It
     # falls back to defaults rather than refusing to launch.
