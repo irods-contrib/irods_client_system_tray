@@ -204,6 +204,66 @@ def test_empty_error_falls_back_to_the_exception_name():
     assert worker._format_exception_message(ValueError("   ")) == "ValueError"
 
 
+def test_chained_error_includes_the_underlying_failure():
+    worker = IRODSUploadWorker()
+    error = RuntimeError("parallel put failed")
+    error.__cause__ = ConnectionResetError("auxiliary connection reset")
+
+    assert worker._format_exception_message(error) == (
+        "parallel put failed (caused by ConnectionResetError: auxiliary connection reset)"
+    )
+
+    error.__cause__ = error  # The iRODS client can chain its generic error to itself.
+    assert worker._format_exception_message(error) == "parallel put failed"
+
+
+@pytest.mark.parametrize("cause_kind", ["none", "connection", "self"])
+def test_parallel_failure_reports_bytes_and_underlying_cause(
+    tmp_path, monkeypatch, cause_kind
+):
+    from irods import session as irods_session
+
+    fake_session = MagicMock()
+    fake_session.__enter__.return_value = fake_session
+
+    def fake_put(_local, _logical, *, updatables):
+        updatables(2)
+        if cause_kind == "connection":
+            raise RuntimeError("parallel put failed") from ConnectionResetError(
+                "auxiliary connection reset"
+            )
+        if cause_kind == "self":
+            error = RuntimeError("parallel put failed")
+            raise error from error
+        raise RuntimeError("parallel put failed")
+
+    fake_session.data_objects.put.side_effect = fake_put
+    monkeypatch.setattr(irods_session, "iRODSSession", lambda **_kwargs: fake_session)
+    local_file = tmp_path / "report.csv"
+    local_file.write_text("data", encoding="utf-8")
+    worker = IRODSUploadWorker(
+        IRODSEnvironment(
+            irods_host="localhost", irods_user_name="alice",
+            irods_password="password", irods_zone_name="tempZone",
+        )
+    )
+    monkeypatch.setattr(worker, "_wait_for_stable_file", lambda *_args: None)
+    failures = []
+    worker.upload_failed.connect(lambda _path, message: failures.append(message))
+
+    worker.upload_file(str(local_file), str(tmp_path), "/tempZone/home/alice", "trash", "")
+
+    assert len(failures) == 1
+    assert failures[0].startswith(
+        "transferring to iRODS: parallel put failed (2/4 bytes reported to localhost:1247"
+    )
+    if cause_kind == "connection":
+        assert "ConnectionResetError: auxiliary connection reset" in failures[0]
+    else:
+        assert "iRODS client provided no cause" in failures[0]
+    assert local_file.exists()
+
+
 def test_cancelling_a_folder_stops_uploads_until_allowed_again(tmp_path):
     # Queued uploads for a folder that has gone away are dropped, rather than failing
     # one by one against files that are no longer there. Allowing the folder again

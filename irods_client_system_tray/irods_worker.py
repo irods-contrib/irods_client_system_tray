@@ -120,7 +120,7 @@ class IRODSUploadWorker(QObject):
                 f"upload debug -> stage={stage} local={local_file} logical={logical_path}"
             )
             self.upload_started.emit(str(local_file), logical_path)
-            stage = "streaming upload"
+            stage = "transferring to iRODS"
             self._stream_upload(
                 local_file,
                 logical_path,
@@ -256,9 +256,21 @@ class IRODSUploadWorker(QObject):
                             str(local_file), logical_path, bytes_sent, total_bytes
                         )
 
-            session.data_objects.put(
-                str(local_file), logical_path, updatables=update_progress
-            )
+            try:
+                session.data_objects.put(
+                    str(local_file), logical_path, updatables=update_progress
+                )
+            except RuntimeError as exc:
+                if str(exc) != "parallel put failed":
+                    raise
+                reason = exc.__cause__ if exc.__cause__ is not exc else None
+                if reason is None and not exc.__suppress_context__:
+                    reason = exc.__context__ if exc.__context__ is not exc else None
+                missing_cause = "; iRODS client provided no cause" if reason is None else ""
+                raise RuntimeError(
+                    f"parallel put failed ({bytes_sent}/{total_bytes} bytes reported "
+                    f"to {environment.irods_host}:{environment.irods_port}{missing_cause})"
+                ) from reason
             self.upload_debug.emit("upload debug -> stage=put completed")
             if bytes_sent < total_bytes or total_bytes == 0:
                 self.upload_progress.emit(
@@ -341,12 +353,32 @@ class IRODSUploadWorker(QObject):
         send2trash(str(local_file))
 
     def _format_exception_message(self, exc: Exception) -> str:
-        """Return a stable error string even when the underlying exception is blank."""
+        """Include chained failures while avoiding repeated or cyclic exceptions."""
 
-        details = [str(part).strip() for part in getattr(exc, "args", ()) if str(part).strip()]
-        if details:
-            return ": ".join(details)
-        return exc.__class__.__name__
+        def describe(error: BaseException) -> str:
+            parts = [str(part).strip() for part in error.args if str(part).strip()]
+            return ": ".join(parts) or type(error).__name__
+
+        message = describe(exc)
+        causes = []
+        seen = {id(exc)}
+        current: BaseException = exc
+        while len(causes) < 3:
+            cause = current.__cause__ or (
+                None if current.__suppress_context__ else current.__context__
+            )
+            if cause is None or id(cause) in seen:
+                break
+            seen.add(id(cause))
+            detail = describe(cause)
+            if detail != message:
+                if detail != type(cause).__name__:
+                    detail = f"{type(cause).__name__}: {detail}"
+                causes.append(detail)
+            current = cause
+        if causes:
+            message += f" (caused by {'; then '.join(causes)})"
+        return message
 
     def _is_cancelled(self, monitored_root: str) -> bool:
         """Check whether uploads for this monitored folder were cancelled."""
