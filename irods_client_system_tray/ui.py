@@ -1129,6 +1129,11 @@ class SettingsWindow(QWidget):
         self.parallel_write_chunk_input.setCurrentIndex(
             self.parallel_write_chunk_input.findData(DEFAULT_PARALLEL_WRITE_CHUNK_MIB)
         )
+        self._manual_write_chunk_sizes = (
+            DEFAULT_SINGLE_WRITE_CHUNK_MIB, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
+        )
+        self._effective_write_chunk_sizes: tuple[int, int] | None = None
+        self._showing_automatic_write_chunks = False
         self.chunk_status_label = QLabel()
         self.chunk_status_label.setWordWrap(True)
         self.chunk_status_label.hide()
@@ -1410,26 +1415,64 @@ class SettingsWindow(QWidget):
         self.automatic_upload_worker_ceiling_input.setEnabled(automatic)
         self.auto_worker_status_label.setVisible(automatic)
         automatic_chunks = self.automatic_write_chunks_checkbox.isChecked()
+        changed_mode = automatic_chunks != self._showing_automatic_write_chunks
+        if changed_mode and automatic_chunks:
+            self._manual_write_chunk_sizes = (
+                self.single_write_chunk_input.currentData(),
+                self.parallel_write_chunk_input.currentData(),
+            )
+        self._showing_automatic_write_chunks = automatic_chunks
+        if automatic_chunks:
+            sizes = self._effective_write_chunk_sizes or self._manual_write_chunk_sizes
+            self.single_write_chunk_input.setCurrentIndex(
+                self.single_write_chunk_input.findData(sizes[0])
+            )
+            self.parallel_write_chunk_input.setCurrentIndex(
+                self.parallel_write_chunk_input.findData(sizes[1])
+            )
+        elif changed_mode:
+            self.single_write_chunk_input.setCurrentIndex(
+                self.single_write_chunk_input.findData(self._manual_write_chunk_sizes[0])
+            )
+            self.parallel_write_chunk_input.setCurrentIndex(
+                self.parallel_write_chunk_input.findData(self._manual_write_chunk_sizes[1])
+            )
         self.single_write_chunk_input.setEnabled(not automatic_chunks)
         self.parallel_write_chunk_input.setEnabled(not automatic_chunks)
         self.chunk_status_label.setVisible(automatic_chunks)
 
     def set_write_chunk_settings(self, automatic: bool, single: int, parallel: int) -> None:
+        self._manual_write_chunk_sizes = (single, parallel)
         self.single_write_chunk_input.setCurrentIndex(self.single_write_chunk_input.findData(single))
         self.parallel_write_chunk_input.setCurrentIndex(self.parallel_write_chunk_input.findData(parallel))
+        # A programmatic mode change must not capture the displayed sizes as Manual choices.
+        self._showing_automatic_write_chunks = automatic
         self.automatic_write_chunks_checkbox.setChecked(automatic)
         self._update_worker_mode_state()
 
     def get_write_chunk_settings(self) -> tuple[bool, int, int]:
+        automatic = self.automatic_write_chunks_checkbox.isChecked()
+        single, parallel = (
+            self._manual_write_chunk_sizes if automatic else (
+                self.single_write_chunk_input.currentData(),
+                self.parallel_write_chunk_input.currentData(),
+            )
+        )
         return (
-            self.automatic_write_chunks_checkbox.isChecked(),
-            self.single_write_chunk_input.currentData(),
-            self.parallel_write_chunk_input.currentData(),
+            automatic, single, parallel,
         )
 
     def set_chunk_status(
         self, single: int, parallel: int, *, worker_cap: int | None = None
     ) -> None:
+        self._effective_write_chunk_sizes = (single, parallel)
+        if self.automatic_write_chunks_checkbox.isChecked():
+            self.single_write_chunk_input.setCurrentIndex(
+                self.single_write_chunk_input.findData(single)
+            )
+            self.parallel_write_chunk_input.setCurrentIndex(
+                self.parallel_write_chunk_input.findData(parallel)
+            )
         message = f"Write sizes: single {single} MiB · parallel {parallel} MiB"
         if worker_cap is not None:
             message += f" · memory budget caps workers at {worker_cap}"
