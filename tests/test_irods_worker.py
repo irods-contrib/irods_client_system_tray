@@ -222,6 +222,23 @@ def test_stream_upload_reports_completion_if_client_skips_progress_callbacks(
     assert progress == [(0, 10), (10, 10)]
 
 
+def test_upload_worker_uses_selected_single_thread_write_size(tmp_path, monkeypatch):
+    from irods import session as irods_session
+
+    fake_session = MagicMock()
+    fake_session.__enter__.return_value = fake_session
+    monkeypatch.setattr(irods_session, "iRODSSession", lambda **_kwargs: fake_session)
+    worker = IRODSUploadWorker()
+    worker.write_buffer_size = 4 * 1024 * 1024
+
+    worker._stream_upload(
+        tmp_path / "report.csv", "/tempZone/home/alice/report.csv",
+        "/tempZone/home/alice", 10, IRODSEnvironment(),
+    )
+
+    assert fake_session.data_objects.WRITE_BUFFER_SIZE == 4 * 1024 * 1024
+
+
 def test_empty_error_falls_back_to_the_exception_name():
     # Checks the user never sees a blank error. Some iRODS client exceptions carry
     # no text at all, so the worker falls back to the exception type name.

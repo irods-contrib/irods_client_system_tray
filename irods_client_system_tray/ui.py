@@ -37,6 +37,9 @@ from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     DEFAULT_MAXIMUM_UPLOAD_WORKERS,
     DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING,
+    DEFAULT_SINGLE_WRITE_CHUNK_MIB,
+    DEFAULT_PARALLEL_WRITE_CHUNK_MIB,
+    WRITE_CHUNK_SIZES_MIB,
     IRODSEnvironment,
     MonitoredDirectory,
     RetryConfig,
@@ -1113,6 +1116,22 @@ class SettingsWindow(QWidget):
         self.auto_worker_status_label = QLabel()
         self.auto_worker_status_label.setWordWrap(True)
         self.auto_worker_status_label.hide()
+        self.automatic_write_chunks_checkbox = QCheckBox("Automatic write sizes")
+        self.automatic_write_chunks_checkbox.toggled.connect(self._update_worker_mode_state)
+        self.single_write_chunk_input = QComboBox()
+        self.parallel_write_chunk_input = QComboBox()
+        for size in WRITE_CHUNK_SIZES_MIB:
+            for control in (self.single_write_chunk_input, self.parallel_write_chunk_input):
+                control.addItem(f"{size} MiB", size)
+        self.single_write_chunk_input.setCurrentIndex(
+            self.single_write_chunk_input.findData(DEFAULT_SINGLE_WRITE_CHUNK_MIB)
+        )
+        self.parallel_write_chunk_input.setCurrentIndex(
+            self.parallel_write_chunk_input.findData(DEFAULT_PARALLEL_WRITE_CHUNK_MIB)
+        )
+        self.chunk_status_label = QLabel()
+        self.chunk_status_label.setWordWrap(True)
+        self.chunk_status_label.hide()
 
         retry_form_layout.addRow("Retry attempts", self.retry_attempts_input)
         retry_form_layout.addRow("Initial delay (s)", self.retry_first_delay_input)
@@ -1120,10 +1139,14 @@ class SettingsWindow(QWidget):
         retry_form_layout.addRow(self.automatic_upload_workers_checkbox)
         retry_form_layout.addRow("Maximum upload workers", self.maximum_upload_workers_input)
         retry_form_layout.addRow("Automatic ceiling", self.automatic_upload_worker_ceiling_input)
+        retry_form_layout.addRow(self.automatic_write_chunks_checkbox)
+        retry_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
+        retry_form_layout.addRow("Parallel write", self.parallel_write_chunk_input)
 
         retry_layout.addWidget(retry_title)
         retry_layout.addLayout(retry_form_layout)
         retry_layout.addWidget(self.auto_worker_status_label)
+        retry_layout.addWidget(self.chunk_status_label)
         self._update_worker_mode_state()
 
         settings_button_row = QHBoxLayout()
@@ -1386,6 +1409,31 @@ class SettingsWindow(QWidget):
         self.maximum_upload_workers_input.setEnabled(not automatic)
         self.automatic_upload_worker_ceiling_input.setEnabled(automatic)
         self.auto_worker_status_label.setVisible(automatic)
+        automatic_chunks = self.automatic_write_chunks_checkbox.isChecked()
+        self.single_write_chunk_input.setEnabled(not automatic_chunks)
+        self.parallel_write_chunk_input.setEnabled(not automatic_chunks)
+        self.chunk_status_label.setVisible(automatic_chunks)
+
+    def set_write_chunk_settings(self, automatic: bool, single: int, parallel: int) -> None:
+        self.single_write_chunk_input.setCurrentIndex(self.single_write_chunk_input.findData(single))
+        self.parallel_write_chunk_input.setCurrentIndex(self.parallel_write_chunk_input.findData(parallel))
+        self.automatic_write_chunks_checkbox.setChecked(automatic)
+        self._update_worker_mode_state()
+
+    def get_write_chunk_settings(self) -> tuple[bool, int, int]:
+        return (
+            self.automatic_write_chunks_checkbox.isChecked(),
+            self.single_write_chunk_input.currentData(),
+            self.parallel_write_chunk_input.currentData(),
+        )
+
+    def set_chunk_status(
+        self, single: int, parallel: int, *, worker_cap: int | None = None
+    ) -> None:
+        message = f"Write sizes: single {single} MiB · parallel {parallel} MiB"
+        if worker_cap is not None:
+            message += f" · memory budget caps workers at {worker_cap}"
+        self.chunk_status_label.setText(message)
 
     def set_status_message(self, message: str, *, is_error: bool = False) -> None:
         """Show a normal or error status message near the top of the window."""

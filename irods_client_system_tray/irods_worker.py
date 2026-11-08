@@ -36,6 +36,7 @@ class IRODSUploadWorker(QObject):
     def __init__(self, environment: IRODSEnvironment | None = None) -> None:
         super().__init__()
         self._prepare_parallel_uploads()
+        self.write_buffer_size = self.UPLOAD_WRITE_BUFFER_SIZE
         self._environment = self._copy_environment(environment or IRODSEnvironment())
         self._cancelled_monitored_roots: set[str] = set()
         self._cancelled_monitored_roots_lock = Lock()
@@ -248,7 +249,7 @@ class IRODSUploadWorker(QObject):
             self.upload_progress.emit(str(local_file), logical_path, 0, total_bytes)
             self.upload_paths_resolved.emit(str(local_file), logical_path)
             # Avoid excessive write round trips on high-latency connections.
-            session.data_objects.WRITE_BUFFER_SIZE = self.UPLOAD_WRITE_BUFFER_SIZE
+            session.data_objects.WRITE_BUFFER_SIZE = self.write_buffer_size
             self.upload_debug.emit(
                 f"upload debug -> stage=before put local={local_file} logical={logical_path}"
             )

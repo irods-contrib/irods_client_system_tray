@@ -58,6 +58,10 @@ class AutomaticUploadWorkers:
             self.reset_observations()
         return self.current
 
+    @property
+    def probing(self) -> bool:
+        return self._probe_origin is not None
+
     def record_success(
         self, bytes_transferred: int, started_at: float, finished_at: float, *, backlogged: bool
     ) -> int | None:

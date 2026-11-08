@@ -161,6 +161,28 @@ def test_automatic_upload_worker_settings_survive_restart(tmp_path, monkeypatch)
     assert store.load().automatic_upload_workers is False
 
 
+def test_write_chunk_settings_are_persisted_and_bad_values_use_defaults(tmp_path):
+    store = ConfigStore(path=tmp_path / "app_state.json")
+    store.save(AppConfig(
+        automatic_write_chunks=True, single_write_chunk_size_mib=16,
+        parallel_write_chunk_size_mib=8,
+    ))
+
+    loaded = store.load()
+    assert loaded.automatic_write_chunks is True
+    assert loaded.single_write_chunk_size_mib == 16
+    assert loaded.parallel_write_chunk_size_mib == 8
+
+    store.path.write_text(
+        '{"automatic_write_chunks": "false", "single_write_chunk_size_mib": 99, '
+        '"parallel_write_chunk_size_mib": "invalid"}', encoding="utf-8",
+    )
+    loaded = store.load()
+    assert loaded.automatic_write_chunks is False
+    assert loaded.single_write_chunk_size_mib == 8
+    assert loaded.parallel_write_chunk_size_mib == 4
+
+
 def test_corrupt_settings_file_falls_back_to_defaults(tmp_path):
     # Checks the app still opens if its settings file is missing or damaged. It
     # falls back to defaults rather than refusing to launch.
