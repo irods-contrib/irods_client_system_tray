@@ -153,10 +153,12 @@ def test_login_errors_are_categorized_for_the_user(login_dialog, error, expected
 # --- login form validation ------------------------------------------------------
 
 
-def test_login_opens_without_heading_subtitle_or_initial_status(login_dialog):
+def test_login_has_heading_but_no_subtitle_or_initial_status(login_dialog):
     labels = [label.text() for label in login_dialog.findChildren(QLabel)]
 
-    assert "Sign in to iRODS" not in labels
+    assert login_dialog.windowTitle() == "iRODS Ingest"
+    assert "iRODS Login" in labels
+    assert login_dialog.sign_in_button.text() == "Login"
     assert not any("Enter your iRODS connection details" in text for text in labels)
     assert login_dialog.status_label.text() == ""
     assert login_dialog.status_label.isHidden()

@@ -160,9 +160,12 @@ class LoginDialog(QDialog):
         self._default_dialog_width = 420
         self._default_dialog_height = 320
 
-        self.setWindowTitle("iRODS Login")
+        self.setWindowTitle("iRODS Ingest")
         self.setModal(True)
         self.resize(self._default_dialog_width, self._default_dialog_height)
+
+        title_label = QLabel("iRODS Login")
+        title_label.setStyleSheet("font-size: 22px; font-weight: 600;")
 
         form_layout = QFormLayout()
         form_layout.setSpacing(10)
@@ -217,7 +220,7 @@ class LoginDialog(QDialog):
 
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.reject)
-        self.sign_in_button = QPushButton("Sign In")
+        self.sign_in_button = QPushButton("Login")
         self.sign_in_button.clicked.connect(self._attempt_login)
 
         button_row.addWidget(self.cancel_button)
@@ -226,6 +229,7 @@ class LoginDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
+        layout.addWidget(title_label)
         layout.addLayout(form_layout)
         layout.addWidget(self.status_label)
         layout.addWidget(self.error_details_link)
