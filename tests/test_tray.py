@@ -96,6 +96,7 @@ def _stored_folders(controller) -> list[tuple[str, str]]:
 
 def test_tray_menu_opens_the_main_window(controller):
     assert controller.open_settings_action.text() == "Main Window"
+    assert controller.sign_in_action.text() == "Main Window"
 
 
 def test_tray_menu_labels_the_sign_out_action_logout(controller):
