@@ -98,6 +98,10 @@ def test_tray_menu_opens_the_main_window(controller):
     assert controller.open_settings_action.text() == "Main Window"
 
 
+def test_tray_menu_labels_the_sign_out_action_logout(controller):
+    assert controller.sign_out_action.text() == "Logout"
+
+
 def test_added_folder_target_is_anchored_under_the_zone(controller, watched):
     # Checks the controller fixes up what the dialog hands it. The user types a bare
     # collection path like "home/alice" and it must be stored under their zone.

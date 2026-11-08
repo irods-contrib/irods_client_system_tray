@@ -153,6 +153,15 @@ def test_login_errors_are_categorized_for_the_user(login_dialog, error, expected
 # --- login form validation ------------------------------------------------------
 
 
+def test_login_opens_without_heading_subtitle_or_initial_status(login_dialog):
+    labels = [label.text() for label in login_dialog.findChildren(QLabel)]
+
+    assert "Sign in to iRODS" not in labels
+    assert not any("Enter your iRODS connection details" in text for text in labels)
+    assert login_dialog.status_label.text() == ""
+    assert login_dialog.status_label.isHidden()
+
+
 @pytest.mark.parametrize(
     ("host", "port", "zone", "user", "password", "expected"),
     [
@@ -177,6 +186,7 @@ def test_invalid_login_details_are_rejected_locally(
     login_dialog._attempt_login()
 
     assert login_dialog.status_label.text() == expected
+    assert not login_dialog.status_label.isHidden()
     assert login_dialog._auth_thread is None
     assert login_dialog.sign_in_button.isEnabled()
 
