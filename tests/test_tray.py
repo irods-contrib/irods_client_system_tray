@@ -141,6 +141,33 @@ def test_removed_folder_is_dropped_from_the_saved_file(controller, watched, tmp_
     assert saved["monitored_directories"] == []
 
 
+def test_monitoring_state_uses_checkbox_without_a_status_message(controller, monkeypatch):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+
+    controller.set_monitoring_active(True)
+    assert controller.window.monitor_toggle.isChecked()
+    assert controller.window.status_label.isHidden()
+
+    controller.set_monitoring_active(False)
+    assert not controller.window.monitor_toggle.isChecked()
+    assert controller.window.status_label.isHidden()
+
+
+def test_missing_folder_warning_remains_visible_without_active_message(
+    controller, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(tmp_path / "missing"), "/tempZone/home/alice")
+    ]
+    controller.config.is_monitoring_active = True
+
+    controller._sync_from_config()
+
+    assert controller.window.status_label.text() == "1 monitored folder(s) are missing."
+    assert not controller.window.status_label.isHidden()
+
+
 # --- queueing uploads -----------------------------------------------------------
 
 

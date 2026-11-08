@@ -1018,9 +1018,10 @@ class SettingsWindow(QWidget):
         self.monitor_toggle.toggled.connect(self.monitoring_toggled)
         self.monitor_toggle.setObjectName("monitorToggleCheckbox")
 
-        self.status_label = QLabel("Ready")
+        self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setObjectName("settingsStatusLabel")
+        self.status_label.hide()
 
         self.tabs = QTabWidget()
         self.tabs.setObjectName("settingsTabs")
@@ -1323,6 +1324,7 @@ class SettingsWindow(QWidget):
 
         self.status_label.setText(message)
         _set_label_error_state(self.status_label, is_error)
+        self.status_label.setVisible(bool(message))
 
     def append_activity(self, message: str) -> None:
         """Append a new activity message to the log and refresh the visible history."""
