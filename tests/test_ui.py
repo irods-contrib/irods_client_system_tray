@@ -49,6 +49,11 @@ def settings_window(activity_log):
     return SettingsWindow(activity_log)
 
 
+def test_settings_window_uses_irods_ingest_name(settings_window):
+    assert settings_window.windowTitle() == "iRODS Ingest"
+    assert settings_window.title_label.text() == "iRODS Ingest"
+
+
 @pytest.fixture
 def one_shot_server():
     """Start a local socket that answers a single request with a fixed payload."""
