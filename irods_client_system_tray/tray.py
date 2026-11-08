@@ -89,6 +89,7 @@ class TrayController(QObject):
     notification_open_requested = Signal()
     upload_environment_updated = Signal(object)
     upload_environment_cleared = Signal()
+    THROUGHPUT_IDLE_SECONDS = 5
 
     def __init__(self, app: QApplication) -> None:
         """Build the tray icon, menu, monitor, and settings window for the app."""
@@ -121,6 +122,11 @@ class TrayController(QObject):
         )
         self._recent_transfers: deque[TransferSample] = deque(maxlen=8)
         self._recent_throughput: float | None = None
+        self._last_transfer_activity_at: float | None = None
+        self._throughput_idle_timer = QTimer(self)
+        self._throughput_idle_timer.setSingleShot(True)
+        self._throughput_idle_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._throughput_idle_timer.timeout.connect(self._handle_throughput_idle)
         self._upload_workers: list[UploadWorkerSlot] = []
         self._active_uploads: dict[str, UploadWorkerSlot] = {}
         self._pending_initial_scans: set[str] = {
@@ -763,33 +769,38 @@ class TrayController(QObject):
     def _update_upload_summary(self) -> None:
         waiting = sum(job.status == "queued" for job in self._queued_uploads.values())
         throughput = self._current_throughput()
+        remaining_bytes = self._remaining_upload_bytes()
         self.window.set_upload_summary(
             self._effective_upload_workers, len(self._active_uploads), waiting,
-            throughput, self._estimated_time_remaining_seconds(throughput),
+            throughput, remaining_bytes=remaining_bytes,
+            eta_seconds=self._estimated_time_remaining_seconds(remaining_bytes, throughput),
         )
 
     def _current_throughput(self) -> float | None:
-        if self._recent_transfers and time.monotonic() - max(
-            sample.finished_at for sample in self._recent_transfers
-        ) > 300:
-            return None
+        if (
+            self._recent_throughput is not None
+            and self._last_transfer_activity_at is not None
+            and time.monotonic() - self._last_transfer_activity_at >= self.THROUGHPUT_IDLE_SECONDS
+        ):
+            return 0.0
         return self._recent_throughput
 
-    def _estimated_time_remaining_seconds(self, throughput: float | None) -> int | None:
-        """Estimate the active and ready-queue bytes at the last observed speed."""
+    def _note_transfer_activity(self, when: float | None = None) -> None:
+        self._last_transfer_activity_at = time.monotonic() if when is None else when
+        if self._recent_throughput is not None:
+            self._throughput_idle_timer.start(int(self.THROUGHPUT_IDLE_SECONDS * 1000) + 50)
+
+    def _handle_throughput_idle(self) -> None:
+        self._update_upload_summary()
+        self._show_auto_worker_status()
+
+    def _remaining_upload_bytes(self) -> int | None:
+        """Count unsent active bytes and file sizes waiting for an upload worker."""
 
         jobs = [
             job for job in self._queued_uploads.values()
             if job.status in {"queued", "dispatched", "uploading"}
         ]
-        if not jobs:
-            return 0
-        if (
-            not self._is_authenticated or not self.config.is_monitoring_active
-            or throughput is None or throughput <= 0
-        ):
-            return None
-
         remaining_bytes = 0
         for job in jobs:
             if job.status == "queued" and job.size_bytes == 0:
@@ -798,6 +809,21 @@ class TrayController(QObject):
                 except OSError:
                     return None
             remaining_bytes += max(0, job.size_bytes - job.bytes_sent)
+        return remaining_bytes
+
+    def _estimated_time_remaining_seconds(
+        self, remaining_bytes: int | None, throughput: float | None
+    ) -> int | None:
+        """Estimate time remaining at the last observed aggregate throughput."""
+
+        if remaining_bytes == 0:
+            return 0
+        if (
+            remaining_bytes is None or not self._is_authenticated
+            or not self.config.is_monitoring_active
+            or throughput is None or throughput <= 0
+        ):
+            return None
         return ceil(remaining_bytes / throughput)
 
     def _record_completed_transfer(self, job: UploadJob, finished_at: float) -> None:
@@ -817,6 +843,7 @@ class TrayController(QObject):
             self._recent_throughput = sum(
                 sample.bytes_transferred for sample in self._recent_transfers
             ) / elapsed
+            self._note_transfer_activity(finished_at)
 
     def _show_auto_worker_status(self) -> None:
         if self._auto_workers is not None:
@@ -993,7 +1020,10 @@ class TrayController(QObject):
         job = self._queued_uploads.get(local_path)
         if job is not None:
             job.size_bytes = max(0, total_bytes)
+            previous_bytes = job.bytes_sent
             job.bytes_sent = min(job.size_bytes, max(0, bytes_sent))
+            if job.bytes_sent > previous_bytes:
+                self._note_transfer_activity()
         self._update_upload_summary()
         if total_bytes <= 0:
             self.window.set_status_message(f"Uploading {Path(local_path).name}...")
@@ -1311,6 +1341,8 @@ class TrayController(QObject):
         self._active_uploads.clear()
         self._recent_transfers.clear()
         self._recent_throughput = None
+        self._last_transfer_activity_at = None
+        self._throughput_idle_timer.stop()
         for slot in self._upload_workers:
             slot.busy_path = None
         if self._auto_workers is not None:
