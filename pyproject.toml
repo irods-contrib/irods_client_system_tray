@@ -1,6 +1,6 @@
 [project]
 name = "irods-client-system-tray"
-version = "0.1.1"
+version = "0.2.0"
 authors = [
   { name="iRODS Consortium", email="info@irods.org" },
 ]
