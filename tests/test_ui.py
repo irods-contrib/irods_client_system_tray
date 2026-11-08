@@ -81,17 +81,21 @@ def test_session_summary_is_right_aligned_in_the_window_header(settings_window):
     assert settings_window.session_host_label.alignment() & Qt.AlignmentFlag.AlignRight
     assert settings_window.upload_summary_label.parent() is settings_window
     assert settings_window.upload_summary_label.alignment() & Qt.AlignmentFlag.AlignRight
+    assert settings_window.upload_queue_label.alignment() & Qt.AlignmentFlag.AlignRight
     assert settings_window.upload_throughput_label.alignment() & Qt.AlignmentFlag.AlignRight
 
 
 def test_header_shows_worker_queue_and_recent_speed(settings_window):
     settings_window.set_upload_summary(3, 2, 5, 12 * 1024 * 1024)
 
-    assert settings_window.upload_summary_label.text() == "Workers: 3 (2 active) · Queued: 5"
-    assert settings_window.upload_throughput_label.text() == "Recent throughput: 12.0 MiB/s"
+    assert settings_window.upload_summary_label.text() == "Active Workers: 2/3"
+    assert settings_window.upload_queue_label.text() == "Queue: 5"
+    assert settings_window.upload_throughput_label.text() == "Throughput: 12.0 MiB/s"
 
     settings_window.set_upload_summary(2, 0, 0, None)
-    assert settings_window.upload_throughput_label.text() == "Recent throughput: gathering data"
+    assert settings_window.upload_summary_label.text() == "Active Workers: 0/2"
+    assert settings_window.upload_queue_label.text() == "Queue: 0"
+    assert settings_window.upload_throughput_label.text() == "Throughput: --"
 
 
 def test_session_summary_clears_when_no_connection_is_configured(settings_window):

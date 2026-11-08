@@ -19,6 +19,7 @@ QLabel#sessionHostLabel {
     font-size: $font_sm;
 }
 QLabel#uploadSummaryLabel,
+QLabel#uploadQueueLabel,
 QLabel#uploadThroughputLabel {
     color: $muted;
     font-size: $font_sm;
