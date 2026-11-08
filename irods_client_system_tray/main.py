@@ -10,7 +10,7 @@ from importlib.resources import files
 from string import Template
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFontInfo, QGuiApplication, QPalette
+from PySide6.QtGui import QColor, QFontInfo, QGuiApplication, QIcon, QPalette, QPixmap
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from .tray import TrayController
@@ -19,6 +19,7 @@ BACKGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_BACKGROUND"
 FOREGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND"
 HELP_OPTIONS = ("-h", "--help")
 THEME_TEMPLATE_PATH = files("irods_client_system_tray").joinpath("theme.qss.template")
+APP_ICON_RESOURCE = files("irods_client_system_tray").joinpath("app_icon.png")
 
 THEME_TOKENS = {
     "dark": {
@@ -122,17 +123,32 @@ def _apply_theme(app: QApplication) -> None:
     app.setStyleSheet(Template(THEME_TEMPLATE_PATH.read_text()).substitute(substitutions))
 
 
-def _hide_from_macos_dock() -> None:
-    """Run command-line launches as a menu-bar accessory app on macOS."""
+def _show_in_macos_dock(icon_data: bytes) -> None:
+    """Give the regular macOS application a Dock and app-switcher icon."""
 
     if sys.platform != "darwin":
         return
 
-    from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+    from AppKit import NSApplication, NSApplicationActivationPolicyRegular, NSImage
+    from Foundation import NSData
 
-    NSApplication.sharedApplication().setActivationPolicy_(
-        NSApplicationActivationPolicyAccessory
+    ns_image = NSImage.alloc().initWithData_(
+        NSData.dataWithBytes_length_(icon_data, len(icon_data))
     )
+    application = NSApplication.sharedApplication()
+    application.setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    application.setApplicationIconImage_(ns_image)
+
+
+def _set_application_icon(app: QApplication) -> None:
+    """Use the bundled circular wordmark for app windows and the macOS Dock."""
+
+    icon_data = APP_ICON_RESOURCE.read_bytes()
+    pixmap = QPixmap()
+    if not pixmap.loadFromData(icon_data, "PNG"):
+        raise RuntimeError("Could not load the bundled application icon.")
+    app.setWindowIcon(QIcon(pixmap))
+    _show_in_macos_dock(icon_data)
 
 
 def _usage(program_name: str) -> str:
@@ -222,10 +238,10 @@ def main() -> int:
         return 0
 
     app = QApplication(qt_args)
-    _hide_from_macos_dock()
-    app.setApplicationName("iRODS System Tray")
+    app.setApplicationName("iRODS Ingest")
     app.setOrganizationName("iRODS")
     app.setStyle("Fusion")
+    _set_application_icon(app)
     _apply_theme(app)
     QGuiApplication.styleHints().colorSchemeChanged.connect(lambda _scheme: _apply_theme(app))
 

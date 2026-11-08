@@ -11,40 +11,64 @@ import pytest
 from irods_client_system_tray import main
 
 
-def test_hide_from_macos_dock_noops_off_macos(monkeypatch):
-    monkeypatch.setattr(main.sys, "platform", "linux")
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_show_in_macos_dock_noops_off_macos(monkeypatch, platform):
+    monkeypatch.setattr(main.sys, "platform", platform)
     monkeypatch.setitem(sys.modules, "AppKit", None)
 
-    main._hide_from_macos_dock()
+    main._show_in_macos_dock(b"icon")
 
 
-def test_hide_from_macos_dock_sets_accessory_policy_on_macos(monkeypatch):
+def test_show_in_macos_dock_sets_regular_policy_and_icon(monkeypatch):
     policies = []
+    icons = []
 
     class Application:
         def setActivationPolicy_(self, policy):
             policies.append(policy)
+
+        def setApplicationIconImage_(self, image):
+            icons.append(image)
 
     class NSApplication:
         @staticmethod
         def sharedApplication():
             return Application()
 
+    class NSImage:
+        @staticmethod
+        def alloc():
+            return NSImage()
+
+        def initWithData_(self, data):
+            return ("image", data)
+
+    class NSData:
+        @staticmethod
+        def dataWithBytes_length_(data, length):
+            assert length == len(data)
+            return data
+
     appkit = types.SimpleNamespace(
         NSApplication=NSApplication,
-        NSApplicationActivationPolicyAccessory=1,
+        NSApplicationActivationPolicyRegular=0,
+        NSImage=NSImage,
     )
 
     monkeypatch.setattr(main.sys, "platform", "darwin")
     monkeypatch.setitem(sys.modules, "AppKit", appkit)
+    monkeypatch.setitem(sys.modules, "Foundation", types.SimpleNamespace(NSData=NSData))
 
-    main._hide_from_macos_dock()
+    main._show_in_macos_dock(b"icon")
 
-    assert policies == [1]
+    assert policies == [0]
+    assert icons == [("image", b"icon")]
 
 
-def test_main_hides_from_macos_dock_after_creating_qapplication(monkeypatch):
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_main_sets_application_icon_after_creating_qapplication(monkeypatch, platform):
     events = []
+    monkeypatch.setattr(main.sys, "platform", platform)
 
     class QApplication:
         def __init__(self, _args):
@@ -96,8 +120,8 @@ def test_main_hides_from_macos_dock_after_creating_qapplication(monkeypatch):
         def prompt_login(self, *, show_window_on_success):
             pass
 
-    def hide_from_macos_dock():
-        events.append("hide_dock")
+    def set_application_icon(_app):
+        events.append("set_icon")
 
     monkeypatch.setattr(main, "QApplication", QApplication)
     monkeypatch.setattr(main, "QGuiApplication", QGuiApplication)
@@ -105,12 +129,60 @@ def test_main_hides_from_macos_dock_after_creating_qapplication(monkeypatch):
     monkeypatch.setattr(main, "QTimer", QTimer)
     monkeypatch.setattr(main, "TrayController", TrayController)
     monkeypatch.setattr(main, "_apply_theme", lambda _app: None)
-    monkeypatch.setattr(main, "_hide_from_macos_dock", hide_from_macos_dock)
+    monkeypatch.setattr(main, "_set_application_icon", set_application_icon)
     monkeypatch.setattr(main, "_run_in_background_if_needed", lambda *_args: False)
     monkeypatch.setattr(main.signal, "signal", lambda *_args: None)
 
     assert main.main() == 0
-    assert events == ["qapplication", "hide_dock"]
+    assert events == ["qapplication", "set_icon"]
+
+
+def test_bundled_app_icon_has_circular_white_background(qapp, monkeypatch):
+    from PySide6.QtGui import QImage
+
+    passed_to_macos = []
+    monkeypatch.setattr(main, "_show_in_macos_dock", passed_to_macos.append)
+    previous_icon = qapp.windowIcon()
+    try:
+        main._set_application_icon(qapp)
+        image = QImage.fromData(passed_to_macos[0], "PNG")
+
+        assert not qapp.windowIcon().isNull()
+        assert image.width() == image.height() == 1024
+        assert image.pixelColor(0, 0).alpha() == 0
+        assert image.pixelColor(512, 128).name() == "#ffffff"
+        assert image.pixelColor(110, 490).alpha() > 0  # Teal logo text.
+    finally:
+        qapp.setWindowIcon(previous_icon)
+
+
+def test_top_level_windows_inherit_the_application_icon(qapp, monkeypatch, tmp_path):
+    from irods_client_system_tray.activity_log import ActivityLog
+    from irods_client_system_tray.config import IRODSEnvironment
+    from irods_client_system_tray.ui import LoginDialog, SettingsWindow
+
+    monkeypatch.setattr(main, "_show_in_macos_dock", lambda _data: None)
+    previous_icon = qapp.windowIcon()
+    try:
+        main._set_application_icon(qapp)
+        settings = SettingsWindow(ActivityLog(tmp_path / "activity.log"))
+        login = LoginDialog(IRODSEnvironment())
+
+        assert not settings.windowIcon().isNull()
+        assert not login.windowIcon().isNull()
+        assert settings.windowIcon().pixmap(64).toImage() == qapp.windowIcon().pixmap(64).toImage()
+        assert login.windowIcon().pixmap(64).toImage() == qapp.windowIcon().pixmap(64).toImage()
+    finally:
+        qapp.setWindowIcon(previous_icon)
+
+
+def test_invalid_bundled_icon_reports_an_error(qapp, monkeypatch):
+    monkeypatch.setattr(
+        main, "APP_ICON_RESOURCE", types.SimpleNamespace(read_bytes=lambda: b"not a png")
+    )
+
+    with pytest.raises(RuntimeError, match="Could not load the bundled application icon"):
+        main._set_application_icon(qapp)
 
 
 def test_parse_launcher_args_removes_foreground_flag():
@@ -317,7 +389,7 @@ def test_main_explains_when_no_system_tray_is_available(monkeypatch):
 
     monkeypatch.setattr(main.sys, "argv", ["app", "--foreground"])
     monkeypatch.setattr(main, "QApplication", App)
-    monkeypatch.setattr(main, "_hide_from_macos_dock", lambda: None)
+    monkeypatch.setattr(main, "_set_application_icon", lambda _app: None)
     monkeypatch.setattr(main, "_apply_theme", lambda _app: None)
     monkeypatch.setattr(
         main, "QGuiApplication",

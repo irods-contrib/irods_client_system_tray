@@ -23,7 +23,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Fix parallel uploads under Python 3.15 when Qt leaves a lazy executor unresolved.
 - Rename the post-upload recycle mode to trash, alongside move and delete.
 - Reject move-after-upload settings without a destination.
-- Add launcher help and foreground options, and hide the macOS launcher from the Dock.
+- Add launcher help and foreground options; show a branded macOS Dock icon.
 - Persist activity history and expand automated test coverage.
 
 ## [0.1.1] - 2026-09-16
