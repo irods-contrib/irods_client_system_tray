@@ -1014,6 +1014,14 @@ class SettingsWindow(QWidget):
         self.title_label = QLabel("iRODS Ingest")
         self.title_label.setObjectName("settingsTitleLabel")
 
+        self.session_summary_label = QLabel("No iRODS session is configured")
+        self.session_summary_label.setObjectName("sessionUserZoneLabel")
+        self.session_summary_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.session_host_label = QLabel()
+        self.session_host_label.setObjectName("sessionHostLabel")
+        self.session_host_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.session_host_label.hide()
+
         self.monitor_toggle = QCheckBox("Background monitoring enabled")
         self.monitor_toggle.toggled.connect(self.monitoring_toggled)
         self.monitor_toggle.setObjectName("monitorToggleCheckbox")
@@ -1030,26 +1038,6 @@ class SettingsWindow(QWidget):
         overview_layout = QVBoxLayout(overview_tab)
         overview_layout.setContentsMargins(0, 0, 0, 0)
         overview_layout.setSpacing(14)
-
-        session_card = QFrame()
-        session_card.setFrameShape(QFrame.Shape.StyledPanel)
-        session_card.setObjectName("sessionSummaryCard")
-
-        session_layout = QVBoxLayout(session_card)
-        session_layout.setContentsMargins(16, 16, 16, 16)
-        session_layout.setSpacing(8)
-
-        session_title = QLabel("iRODS session")
-        session_title.setObjectName("irodsCardTitle")
-
-        self.session_summary_label = QLabel("No iRODS session is configured")
-        self.session_summary_label.setWordWrap(True)
-        self.session_zone_label = QLabel("Zone: not configured")
-        self.session_zone_label.setWordWrap(True)
-
-        session_layout.addWidget(session_title)
-        session_layout.addWidget(self.session_summary_label)
-        session_layout.addWidget(self.session_zone_label)
 
         irods_card = QFrame()
         irods_card.setFrameShape(QFrame.Shape.StyledPanel)
@@ -1186,7 +1174,6 @@ class SettingsWindow(QWidget):
         self.activity_list.setMaximumHeight(140)
         self.load_activity()
 
-        overview_layout.addWidget(session_card)
         overview_layout.addWidget(directory_card, 1)
         overview_layout.addWidget(failed_uploads_card)
         overview_layout.addWidget(activity_title)
@@ -1207,7 +1194,16 @@ class SettingsWindow(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
-        layout.addWidget(self.title_label)
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(12)
+        header_layout.addWidget(self.title_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        header_layout.addStretch(1)
+        session_layout = QVBoxLayout()
+        session_layout.setSpacing(2)
+        session_layout.addWidget(self.session_summary_label)
+        session_layout.addWidget(self.session_host_label)
+        header_layout.addLayout(session_layout)
+        layout.addLayout(header_layout)
         layout.addWidget(self.monitor_toggle)
         layout.addWidget(self.status_label)
         layout.addWidget(self.tabs, 1)
@@ -1264,16 +1260,16 @@ class SettingsWindow(QWidget):
         self.irods_password_input.clear()
         self.irods_zone_name_input.setText(environment.irods_zone_name)
         self._irods_zone_for_new_folders = environment.irods_zone_name
-        if environment.irods_user_name and environment.irods_host:
+        if environment.irods_user_name and environment.irods_host and environment.irods_zone_name:
             self.session_summary_label.setText(
-                f"Signed in as {environment.irods_user_name}@{environment.irods_host}:{environment.irods_port}"
+                f"{environment.irods_user_name}#{environment.irods_zone_name}"
             )
+            self.session_host_label.setText(f"{environment.irods_host}:{environment.irods_port}")
+            self.session_host_label.show()
         else:
             self.session_summary_label.setText("No iRODS session is configured")
-        if environment.irods_zone_name:
-            self.session_zone_label.setText(f"Zone: {environment.irods_zone_name}")
-        else:
-            self.session_zone_label.setText("Zone: not configured")
+            self.session_host_label.clear()
+            self.session_host_label.hide()
 
     def set_failed_uploads(self, failed_uploads: list[tuple[str, str, int, int]]) -> None:
         """Refresh the failed upload list and selection-dependent retry action."""
