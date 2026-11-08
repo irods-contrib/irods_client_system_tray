@@ -147,7 +147,8 @@ class TrayController(QObject):
         tray_icon = QIcon(self._build_icon())
         self.tray_icon = QSystemTrayIcon(tray_icon, self)
         self.tray_icon.setToolTip("iRODS Ingest")
-        self.window.setWindowIcon(tray_icon)
+        if not self.app.windowIcon().isNull():
+            self.window.setWindowIcon(self.app.windowIcon())
 
         self._build_menu()
         self.tray_icon.setContextMenu(self.menu)
@@ -206,7 +207,8 @@ class TrayController(QObject):
             return
 
         login_dialog = LoginDialog(self.irods_environment_store.load())
-        login_dialog.setWindowIcon(self.tray_icon.icon())
+        if not self.app.windowIcon().isNull():
+            login_dialog.setWindowIcon(self.app.windowIcon())
         login_dialog.setModal(False)
         login_dialog.finished.connect(
             lambda result, dialog=login_dialog: self._handle_login_dialog_finished(dialog, result)

@@ -47,6 +47,8 @@ irods-client-system-tray
 The command starts the tray app in the background and returns the shell prompt.
 Pass `--foreground` or `-f`, or set `IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND=1`,
 to keep it attached to the terminal.
+On macOS the running app also appears in the Dock and app switcher, even when
+started from the terminal in the background.
 
 For a source checkout, this also works:
 
