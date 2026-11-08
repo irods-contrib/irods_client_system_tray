@@ -159,13 +159,13 @@ def test_cancelling_a_folder_stops_uploads_until_allowed_again(tmp_path):
     worker.upload_failed.connect(lambda path, message: events.append(("failed", message)))
 
     worker.cancel_directory_uploads(str(root))
-    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "keep", "")
+    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "recycle", "")
 
     assert [kind for kind, _ in events] == ["cancelled"]
 
     events.clear()
     worker.allow_directory_uploads(str(root))
-    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "keep", "")
+    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "recycle", "")
 
     # No longer cancelled, so it runs on and fails on the empty credentials instead.
     assert [kind for kind, _ in events] == ["failed"]
@@ -182,7 +182,7 @@ def test_failed_upload_reports_the_failing_step(tmp_path):
     failures: list[str] = []
     worker.upload_failed.connect(lambda path, message: failures.append(message))
 
-    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "keep", "")
+    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "recycle", "")
 
     assert failures == [
         "validating iRODS settings: Missing iRODS settings: "
@@ -237,7 +237,9 @@ def test_upload_file_round_trips_into_a_live_zone(tmp_path, irods_environment):
     worker.upload_failed.connect(lambda path, message: failures.append(message))
 
     try:
-        worker.upload_file(str(local_file), str(root), IRODS_TEST_COLLECTION, "keep", "")
+        worker.upload_file(
+            str(local_file), str(root), IRODS_TEST_COLLECTION, "move", str(tmp_path / "archive")
+        )
 
         assert failures == []
         assert finished == [(str(local_file), logical_path)]
@@ -263,8 +265,9 @@ def trashed_files(monkeypatch):
     return sent
 
 
-def test_keep_leaves_the_local_file_in_place(tmp_path):
-    # The "keep" policy uploads a copy and changes nothing on disk.
+def test_legacy_keep_sends_the_local_file_to_the_trash(tmp_path, trashed_files):
+    # A queued upload from an older config must recycle, not keep or permanently
+    # delete, the local file after a successful transfer.
     root = (tmp_path / "watched").resolve()
     root.mkdir()
     uploaded = root / "report.csv"
@@ -272,7 +275,7 @@ def test_keep_leaves_the_local_file_in_place(tmp_path):
 
     IRODSUploadWorker()._run_post_upload_action(uploaded, root, "keep", "")
 
-    assert uploaded.exists()
+    assert trashed_files == [str(uploaded)]
 
 
 def test_delete_removes_the_local_file(tmp_path):

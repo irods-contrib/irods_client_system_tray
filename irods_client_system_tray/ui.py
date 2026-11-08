@@ -42,12 +42,12 @@ from .config import (
     find_overlapping_monitored_directory,
     normalize_directory,
     normalize_irods_zone_name,
+    normalize_post_upload_action,
 )
 
 
 POST_UPLOAD_ACTION_OPTIONS = (
     ("Recycle local files after upload", "recycle"),
-    ("Keep local files", "keep"),
     ("Move local files after upload", "move"),
     ("Delete local files permanently after upload", "delete"),
 )
@@ -527,14 +527,14 @@ class LoginDialog(QDialog):
 def _describe_post_upload_policy(directory: MonitoredDirectory) -> str:
     """Return a short user-facing summary of the folder cleanup policy."""
 
-    if directory.post_upload_action == "recycle":
+    action = normalize_post_upload_action(directory.post_upload_action)
+    if action == "recycle":
         return "send to recycling bin after upload"
-    if directory.post_upload_action == "delete":
+    if action == "delete":
         return "delete permanently after upload"
-    if directory.post_upload_action == "move":
+    if action == "move":
         destination = directory.post_upload_destination or "(destination required)"
         return f"move to {destination}"
-    return "keep local files"
 
 
 def _describe_regex_filter(directory: MonitoredDirectory) -> str:
