@@ -69,7 +69,6 @@ class MonitoredDirectory:
 
     source_directory: str
     target_collection: str = ""
-    recursive: bool = True
     post_upload_action: str = DEFAULT_POST_UPLOAD_ACTION
     post_upload_destination: str = ""
     regex_filter: RegexFilterConfig = field(default_factory=RegexFilterConfig)
@@ -263,14 +262,12 @@ def _normalize_monitored_directory(
     if isinstance(directory, MonitoredDirectory):
         source_directory = directory.source_directory
         target_collection = directory.target_collection
-        recursive = directory.recursive
         post_upload_action = directory.post_upload_action
         post_upload_destination = directory.post_upload_destination
         regex_filter = directory.regex_filter
     elif isinstance(directory, dict):
         source_directory = str(directory.get("source_directory", "")).strip()
         target_collection = str(directory.get("target_collection", "")).strip()
-        recursive = bool(directory.get("recursive", True))
         post_upload_action = str(
             directory.get("post_upload_action", DEFAULT_POST_UPLOAD_ACTION)
         )
@@ -296,7 +293,6 @@ def _normalize_monitored_directory(
     return MonitoredDirectory(
         source_directory=normalize_directory(source_directory),
         target_collection=normalized_target,
-        recursive=recursive,
         post_upload_action=normalized_action,
         post_upload_destination=normalized_destination,
         regex_filter=normalize_regex_filter(regex_filter),
@@ -405,7 +401,6 @@ class ConfigStore:
                 {
                     "source_directory": directory.source_directory,
                     "target_collection": directory.target_collection,
-                    "recursive": directory.recursive,
                     "post_upload_action": directory.post_upload_action,
                     "post_upload_destination": directory.post_upload_destination,
                     "regex_filter": {

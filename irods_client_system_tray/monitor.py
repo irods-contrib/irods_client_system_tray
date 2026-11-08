@@ -124,18 +124,13 @@ class MonitorManager(QObject):
         if not self._ensure_running():
             return
 
-        # Track each configured directory alongside whether its watchdog should recurse.
-        expected_directories = {
-            directory.source_directory: directory.recursive for directory in directories
-        }
+        expected_directories = {directory.source_directory for directory in directories}
         expected_parents = self._build_parent_map(directories)
 
         for directory, watch in list(self._directory_watches.items()):
-            expected_recursive = expected_directories.get(directory)
-            # Recreate the watch if the folder vanished or its recursive setting changed.
             if (
-                expected_recursive is not None
-                and watch.is_recursive == expected_recursive
+                directory in expected_directories
+                and watch.is_recursive
                 and Path(directory).is_dir()
             ):
                 continue
@@ -161,11 +156,10 @@ class MonitorManager(QObject):
             if not Path(directory.source_directory).is_dir():
                 continue
             try:
-                # Apply the per-folder recursive setting from app_state.json / the GUI.
                 watch = self._observer.schedule(
                     self._handler,
                     directory.source_directory,
-                    recursive=directory.recursive,
+                    recursive=True,
                 )
             except OSError as exc:
                 self.monitor_error.emit(

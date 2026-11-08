@@ -237,13 +237,13 @@ class TrayController(QObject):
         source_path = Path(normalized_source)
         for directory in self.config.monitored_directories:
             watched_path = Path(directory.source_directory)
-            if directory.recursive and source_path.is_relative_to(watched_path):
+            if source_path.is_relative_to(watched_path):
                 self.window.set_status_message(
                     f"{normalized_source} is already monitored through recursive watch {directory.source_directory}",
                     is_error=True,
                 )
                 return
-            if normalized_directory.recursive and watched_path.is_relative_to(source_path):
+            if watched_path.is_relative_to(source_path):
                 self.window.set_status_message(
                     f"Recursive watch {normalized_source} would overlap existing folder {directory.source_directory}",
                     is_error=True,
@@ -254,7 +254,6 @@ class TrayController(QObject):
             MonitoredDirectory(
                 source_directory=normalized_source,
                 target_collection=normalized_target,
-                recursive=normalized_directory.recursive,
                 post_upload_action=normalized_action,
                 post_upload_destination=normalized_destination,
                 regex_filter=normalized_directory.regex_filter,
