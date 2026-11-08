@@ -57,6 +57,8 @@ logger = logging.getLogger(__name__)
 def _set_label_error_state(label: QLabel, is_error: bool) -> None:
     """Toggle QSS 'error' property so theme.qss.template can recolor the label."""
 
+    if label.property("error") == is_error:
+        return
     label.setProperty("error", is_error)
     label.style().unpolish(label)
     label.style().polish(label)

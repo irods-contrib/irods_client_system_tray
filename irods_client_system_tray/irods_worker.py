@@ -22,6 +22,8 @@ from .config import (
 class IRODSUploadWorker(QObject):
     """Perform a single iRODS upload attempt on a worker thread so the GUI stays responsive."""
 
+    UPLOAD_WRITE_BUFFER_SIZE = 8 * 1024 * 1024
+
     upload_started = Signal(str, str)
     upload_progress = Signal(str, str, object, object)
     upload_finished = Signal(str, str)
@@ -233,6 +235,8 @@ class IRODSUploadWorker(QObject):
             self._ensure_collection_exists(session, target_collection, logical_path)
             self.upload_progress.emit(str(local_file), logical_path, 0, total_bytes)
             self.upload_paths_resolved.emit(str(local_file), logical_path)
+            # Avoid excessive write round trips on high-latency connections.
+            session.data_objects.WRITE_BUFFER_SIZE = self.UPLOAD_WRITE_BUFFER_SIZE
             self.upload_debug.emit(
                 f"upload debug -> stage=before put local={local_file} logical={logical_path}"
             )
