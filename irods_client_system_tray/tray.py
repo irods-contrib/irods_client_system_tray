@@ -198,6 +198,20 @@ class TrayController(QObject):
             self.window.set_status_message("Failed to add folder: invalid folder configuration.", is_error=True)
             return
 
+        if not directory.source_directory:
+            self.window.set_status_message("Select a source directory to monitor.", is_error=True)
+            return
+
+        if (
+            normalize_post_upload_action(directory.post_upload_action) == "move"
+            and not normalize_file_path(directory.post_upload_destination)
+        ):
+            self.window.set_status_message(
+                "Choose a destination for files moved after upload.",
+                is_error=True,
+            )
+            return
+
         normalized_directories = normalize_monitored_directories([directory])
         if not normalized_directories:
             self.window.set_status_message("Select a source directory to monitor.", is_error=True)
@@ -216,12 +230,6 @@ class TrayController(QObject):
             for directory in self.config.monitored_directories
         ):
             self.window.set_status_message(f"Already monitoring {normalized_source}")
-            return
-        if normalized_action == "move" and not normalized_destination:
-            self.window.set_status_message(
-                "Choose a destination for files moved after upload.",
-                is_error=True,
-            )
             return
         conflict_root = self._find_post_upload_destination_conflict(
             normalized_source,
