@@ -60,6 +60,10 @@ The application stores user settings outside the installed package:
 `$XDG_CONFIG_HOME/irods-client-system-tray` or
 `~/.config/irods-client-system-tray` on Linux.
 
+After upload, files can be recycled, deleted, or moved outside monitored folders.
+The old "keep" setting is no longer available; saved folders using it are migrated
+to "recycle" so they are not silently switched to permanent deletion.
+
 ## Testing
 
 Run the tests:

@@ -199,6 +199,28 @@ def test_unrecognized_cleanup_action_falls_back_to_delete(stored_action, expecte
     assert normalize_post_upload_action(stored_action) == expected
 
 
+def test_legacy_keep_action_migrates_to_recycle_on_load_and_save(tmp_path):
+    source = str(tmp_path / "watched")
+    store = ConfigStore(path=tmp_path / "app_state.json")
+    store.path.write_text(
+        json.dumps(
+            {"monitored_directories": [{"source_directory": source, "post_upload_action": "keep"}]}
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = store.load()
+    assert loaded.monitored_directories[0].post_upload_action == "recycle"
+    assert normalize_post_upload_action("  KEEP ") == "recycle"
+    assert normalize_monitored_directories(
+        [MonitoredDirectory(source_directory=source, post_upload_action="keep")]
+    )[0].post_upload_action == "recycle"
+
+    store.save(loaded)
+    saved = json.loads(store.path.read_text(encoding="utf-8"))
+    assert saved["monitored_directories"][0]["post_upload_action"] == "recycle"
+
+
 def test_folder_without_a_cleanup_action_defaults_to_delete(tmp_path):
     # An app_state.json written by an older build has no post_upload_action at all.
     # It loads as "delete", so upgrading turns every existing watched folder into one
@@ -221,7 +243,7 @@ def test_move_without_a_destination_falls_back_to_delete(tmp_path):
 
 
 def test_destination_is_kept_only_for_the_move_action(tmp_path):
-    # Every other action leaves the file where it is or removes it, so a leftover
+    # Recycle removes the file without moving it to an archive, so a leftover
     # destination from an earlier edit is discarded rather than being acted on.
     loaded = normalize_monitored_directories(
         [
@@ -233,13 +255,13 @@ def test_destination_is_kept_only_for_the_move_action(tmp_path):
         ]
     )[0]
 
-    assert loaded.post_upload_action == "keep"
+    assert loaded.post_upload_action == "recycle"
     assert loaded.post_upload_destination == ""
 
 
 def test_cleanup_settings_survive_a_restart(tmp_path):
     # Both cleanup fields are written to app_state.json and read back, so a folder set
-    # to keep its files does not silently revert to the deleting default on relaunch.
+    # to move its files does not silently revert to the deleting default on relaunch.
     source = str(tmp_path)
     destination = str(tmp_path / "archive")
     store = ConfigStore(path=tmp_path / "app_state.json")

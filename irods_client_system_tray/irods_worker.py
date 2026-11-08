@@ -270,8 +270,7 @@ class IRODSUploadWorker(QObject):
     ) -> None:
         """Apply the configured local-file cleanup only after iRODS put succeeds."""
 
-        if post_upload_action == "keep":
-            return
+        post_upload_action = normalize_post_upload_action(post_upload_action)
 
         if post_upload_action == "recycle":
             self.upload_debug.emit(f"upload debug -> stage=post-upload recycle local={local_file}")
