@@ -289,7 +289,7 @@ class LoginDialog(QDialog):
 
         self.sign_in_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
-        self._set_status_message("Signing in to iRODS...")
+        self._set_status_message("Logging in to iRODS...")
         self._pending_login = (
             entered_host,
             entered_port,

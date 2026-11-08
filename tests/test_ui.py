@@ -215,6 +215,17 @@ def test_invalid_login_details_are_rejected_locally(
     assert login_dialog.sign_in_button.isEnabled()
 
 
+def test_login_progress_message_uses_logging_in(login_dialog, monkeypatch):
+    login_dialog.host_input.setText("irods.example.org")
+    login_dialog.user_name_input.setText("alice")
+    login_dialog.password_input.setText("password")
+    monkeypatch.setattr(login_dialog, "_start_authentication", lambda *_args: None)
+
+    login_dialog._attempt_login()
+
+    assert login_dialog.status_label.text() == "Logging in to iRODS..."
+
+
 # --- heartbeat probe ------------------------------------------------------------
 
 
