@@ -602,14 +602,7 @@ class TrayController(QObject):
 
     def _show_chunk_status(self) -> None:
         if self._chunk_tuners is not None:
-            ceiling = maximum_upload_workers_limit()
-            worker_cap = max(1, self.config.memory_cap_mib // (
-                PARALLEL_TRANSFER_THREADS * self._parallel_chunk_mib
-            ))
-            self.window.set_chunk_status(
-                self._single_chunk_mib, self._parallel_chunk_mib,
-                worker_cap=worker_cap if worker_cap < ceiling else None,
-            )
+            self.window.set_chunk_status(self._single_chunk_mib, self._parallel_chunk_mib)
 
     def _chunks_probing(self) -> bool:
         return self._chunk_tuners is not None and any(
@@ -1018,9 +1011,7 @@ class TrayController(QObject):
 
     def _show_auto_worker_status(self) -> None:
         if self._auto_workers is not None:
-            self.window.set_auto_worker_status(
-                self._effective_upload_workers, self._current_throughput()
-            )
+            self.window.set_auto_worker_status(self._effective_upload_workers)
 
     def _apply_auto_worker_change(self, new_limit: int | None) -> None:
         if self._auto_workers is None:
