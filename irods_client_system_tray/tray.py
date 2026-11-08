@@ -93,7 +93,7 @@ class TrayController(QObject):
         self.upload_worker.moveToThread(self.upload_thread)
         self.upload_thread.start()
 
-        self.sign_in_action = QAction("Sign In", self)
+        self.sign_in_action = QAction("Main Window", self)
         self.sign_in_action.triggered.connect(
             lambda _checked=False: self.prompt_login(show_window_on_success=True)
         )
