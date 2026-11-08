@@ -9,6 +9,8 @@ is attempted.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from contextlib import suppress
 from unittest.mock import MagicMock
 
@@ -33,6 +35,34 @@ def test_subfolder_structure_is_preserved_in_irods(tmp_path):
     )
 
     assert logical == "/tempZone/home/alice/sub/report.csv"
+
+
+def test_worker_resolves_a_non_callable_lazy_thread_pool_executor(monkeypatch):
+    import concurrent.futures
+    from concurrent.futures.thread import ThreadPoolExecutor
+
+    monkeypatch.setattr(concurrent.futures, "ThreadPoolExecutor", object())
+
+    IRODSUploadWorker()
+
+    assert concurrent.futures.ThreadPoolExecutor is ThreadPoolExecutor
+
+
+@pytest.mark.skipif(sys.version_info < (3, 15), reason="Requires Python 3.15 lazy imports")
+def test_python_315_worker_resolves_executor_after_qt_import():
+    # A fresh process preserves the import order that exposed the proxy in QThread.
+    script = """
+from PySide6.QtCore import QCoreApplication
+from irods import parallel
+from irods_client_system_tray.irods_worker import IRODSUploadWorker
+
+app = QCoreApplication([])
+IRODSUploadWorker()
+assert callable(parallel.concurrent.futures.ThreadPoolExecutor)
+"""
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_file_outside_the_watched_folder_uploads_by_name(tmp_path):
