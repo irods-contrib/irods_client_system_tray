@@ -243,6 +243,16 @@ class LoginDialog(QDialog):
         self.error_details_link.setProperty("role", "details-link")
         self.style().unpolish(self.error_details_link)
         self.style().polish(self.error_details_link)
+        if all(
+            field.text().strip()
+            for field in (
+                self.host_input,
+                self.port_input,
+                self.zone_name_input,
+                self.user_name_input,
+            )
+        ):
+            self.password_input.setFocus()
 
     def _attempt_login(self) -> None:
         """Allow access only when the entered credentials authenticate with iRODS."""
