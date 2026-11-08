@@ -281,6 +281,15 @@ def test_signing_in_never_writes_the_password_to_disk(controller, tmp_path):
     assert "alicepass" not in written
 
 
+def test_sign_in_activity_identifies_user_zone_and_server(controller):
+    controller._complete_login(controller.environment)
+
+    assert any(
+        "signed in as alice#tempZone to irods.example.org:1247" in entry
+        for entry in controller.window.activity_log.read_recent()
+    )
+
+
 def test_saved_snapshot_has_no_password(controller):
     # The environment handed to the saver has the password blanked out. The saver
     # also leaves the field out when writing, so two independent steps keep the
