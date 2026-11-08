@@ -249,32 +249,28 @@ def test_folder_without_a_target_collection_warns(
     assert "No target collection configured" in controller.window.status_label.text()
 
 
-# --- iRODS settings -------------------------------------------------------------
+# --- session and retry settings -------------------------------------------------
 
 
-def _fill_settings_form(controller, *, host="irods.example.org", user="alice", zone="tempZone"):
-    controller.window.irods_host_input.setText(host)
-    controller.window.irods_user_name_input.setText(user)
-    controller.window.irods_zone_name_input.setText(zone)
-    controller.window.irods_password_input.clear()
+def test_saving_retry_settings_does_not_change_the_session(controller, tmp_path):
+    controller.window.retry_attempts_input.setValue(3)
+    controller.window.retry_first_delay_input.setValue(5)
+    controller.window.retry_backoff_multiplier_input.setValue(2.0)
 
+    controller.window.save_retry_settings_button.click()
 
-def test_blank_password_field_keeps_the_saved_password(controller):
-    # Checks saving other settings does not wipe the password. The box is always shown
-    # empty, so blank has to mean "leave it alone" — treating it as "clear it" would
-    # break uploads every time the user edited an unrelated field.
-    _fill_settings_form(controller)
-
-    controller.save_irods_settings()
-
+    assert controller.config.retry.attempts == 3
+    assert controller.config.retry.first_delay_in_seconds == 5
+    assert controller.config.retry.backoff_multiplier == 2.0
     assert controller.environment.irods_password == "alicepass"
+    assert controller.config_store.load().retry_by_user[
+        config.build_retry_settings_user_key(controller.environment)
+    ] == controller.config.retry
 
 
-def test_saving_settings_never_writes_the_password_to_disk(controller, tmp_path):
-    # Checks the password does not reach the settings file, by name or by value.
-    _fill_settings_form(controller)
-
-    controller.save_irods_settings()
+def test_signing_in_never_writes_the_password_to_disk(controller, tmp_path):
+    # The login path persists connection details but never the password.
+    controller._complete_login(controller.environment)
 
     written = (tmp_path / "irods_environment.json").read_text(encoding="utf-8")
     assert "irods_password" not in written
@@ -304,26 +300,21 @@ def test_saved_snapshot_has_no_password(controller):
     )
 
 
-@pytest.mark.parametrize("blank_field", ["host", "user", "zone"])
-def test_incomplete_connection_settings_are_refused(controller, blank_field):
-    # Checks any one missing field blocks the save, so the app never stores a
-    # connection it cannot actually use.
-    _fill_settings_form(controller, **{blank_field: ""})
-
-    controller.save_irods_settings()
-
-    assert controller.window.status_label.text() == "Complete host, user, and zone before saving."
-
-
-def test_changing_the_zone_repoints_saved_folders(controller, watched):
-    # Checks switching zones updates folders the user already set up. Targets are
-    # stored as full paths, so without this they would keep pointing at the old zone
-    # and every upload would fail.
-    _fill_settings_form(controller, zone="otherZone")
-
-    controller.save_irods_settings()
+def test_signing_into_a_new_zone_repoints_saved_folders(controller, watched):
+    # Connection changes now go through sign-in, which must repoint folder targets.
+    controller._complete_login(
+        IRODSEnvironment(
+            irods_host="irods.example.org",
+            irods_user_name="alice",
+            irods_password="alicepass",
+            irods_zone_name="otherZone",
+        )
+    )
 
     assert _stored_folders(controller) == [(str(watched), "/otherZone/home/alice")]
+    assert controller.config_store.load().monitored_directories[0].target_collection == (
+        "/otherZone/home/alice"
+    )
 
 
 # --- folder relocation ----------------------------------------------------------

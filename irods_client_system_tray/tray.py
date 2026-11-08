@@ -306,105 +306,6 @@ class TrayController(QObject):
         self.window.hide()
         self.tray_icon.hide()
 
-    def save_irods_settings(self) -> None:
-        """Persist the iRODS session settings entered in the settings window."""
-
-        environment = self._window_environment_for_save()
-        if environment is None:
-            return
-
-        self._apply_irods_settings(environment, sync_retry_from_user=True)
-
-    def save_settings(self) -> None:
-        """Persist the iRODS and retry settings entered in the settings window."""
-
-        environment = self._window_environment_for_save()
-        if environment is None:
-            return
-
-        retry_config = normalize_retry_config(self.window.get_retry_config())
-        zone_changed = self._apply_irods_settings(
-            environment,
-            sync_retry_from_user=False,
-            show_feedback=False,
-        )
-        self._persist_retry_settings(retry_config, show_feedback=False)
-        self.window.set_retry_config(self.config.retry)
-        self.window.set_status_message("Saved settings.")
-        self.window.append_activity(
-            f"saved settings for {environment.irods_user_name} at {environment.irods_host}:{environment.irods_port}"
-        )
-        if zone_changed:
-            self.window.append_activity(
-                f"updated monitored folder targets to use /{normalize_irods_zone_name(environment.irods_zone_name)}"
-            )
-
-    def _window_environment_for_save(self) -> IRODSEnvironment | None:
-        """Return validated iRODS settings from the form or report the missing fields."""
-
-        environment = self.window.get_irods_environment()
-        if not environment.irods_password:
-            environment = IRODSEnvironment(
-                irods_host=environment.irods_host,
-                irods_port=environment.irods_port,
-                irods_user_name=environment.irods_user_name,
-                irods_password=self.environment.irods_password,
-                irods_zone_name=environment.irods_zone_name,
-            )
-        if not all(
-            [
-                environment.irods_host,
-                environment.irods_user_name,
-                environment.irods_zone_name,
-            ]
-        ):
-            self.window.set_status_message(
-                "Complete host, user, and zone before saving.",
-                is_error=True,
-            )
-            return None
-
-        return environment
-
-    def _apply_irods_settings(
-        self,
-        environment: IRODSEnvironment,
-        *,
-        sync_retry_from_user: bool,
-        show_feedback: bool = True,
-    ) -> bool:
-        """Apply validated iRODS settings and optionally refresh retry values."""
-
-        old_zone_name = self.environment.irods_zone_name
-        new_zone_name = environment.irods_zone_name
-        zone_changed = normalize_irods_zone_name(old_zone_name) != normalize_irods_zone_name(
-            new_zone_name
-        )
-        if zone_changed:
-            self._rezone_directory_targets(old_zone_name, new_zone_name)
-
-        if sync_retry_from_user:
-            self.config.retry = self._retry_config_for_environment(environment)
-        self.irods_environment_store.save(self._without_password(environment))
-        self.environment = environment
-        self.upload_environment_updated.emit(environment)
-        self.window.set_irods_environment(self.environment)
-        if sync_retry_from_user:
-            self.window.set_retry_config(self.config.retry)
-        if zone_changed:
-            self.config_store.save(self.config)
-            self._sync_from_config(show_status=False)
-        if show_feedback:
-            self.window.set_status_message("Saved iRODS settings.")
-            self.window.append_activity(
-                f"saved iRODS settings for {environment.irods_user_name} at {environment.irods_host}:{environment.irods_port}"
-            )
-            if zone_changed:
-                self.window.append_activity(
-                    f"updated monitored folder targets to use /{normalize_irods_zone_name(new_zone_name)}"
-                )
-        return zone_changed
-
     def save_retry_settings(self) -> None:
         """Persist the retry settings entered in the settings window."""
 
@@ -484,7 +385,7 @@ class TrayController(QObject):
         self.window.add_folder_requested.connect(self.add_directory)
         self.window.remove_folder_requested.connect(self.remove_directory)
         self.window.retry_failed_upload_requested.connect(self.retry_failed_upload)
-        self.window.save_settings_requested.connect(self.save_settings)
+        self.window.save_retry_settings_requested.connect(self.save_retry_settings)
         self.window.monitoring_toggled.connect(self.set_monitoring_active)
         self.notification_open_requested.connect(self.show_window)
         self.monitor.file_event.connect(self._handle_file_event)
@@ -592,6 +493,13 @@ class TrayController(QObject):
 
     def _complete_login(self, environment: IRODSEnvironment) -> None:
         """Persist the authenticated user and unlock the existing application UI."""
+
+        old_zone_name = self.environment.irods_zone_name
+        if normalize_irods_zone_name(old_zone_name) != normalize_irods_zone_name(
+            environment.irods_zone_name
+        ):
+            self._rezone_directory_targets(old_zone_name, environment.irods_zone_name)
+            self.config_store.save(self.config)
 
         self._is_authenticated = True
         self.environment = environment

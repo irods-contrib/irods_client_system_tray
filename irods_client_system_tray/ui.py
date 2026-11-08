@@ -998,7 +998,7 @@ class SettingsWindow(QWidget):
     add_folder_requested = Signal(object)
     remove_folder_requested = Signal(str)
     retry_failed_upload_requested = Signal(str)
-    save_settings_requested = Signal()
+    save_retry_settings_requested = Signal()
 
     def __init__(self, activity_log: ActivityLog | None = None) -> None:
         """Construct the minimalist settings UI used by the tray application."""
@@ -1039,37 +1039,6 @@ class SettingsWindow(QWidget):
         overview_layout.setContentsMargins(0, 0, 0, 0)
         overview_layout.setSpacing(14)
 
-        irods_card = QFrame()
-        irods_card.setFrameShape(QFrame.Shape.StyledPanel)
-        irods_card.setObjectName("irodsCard")
-
-        irods_layout = QVBoxLayout(irods_card)
-        irods_layout.setContentsMargins(16, 16, 16, 16)
-        irods_layout.setSpacing(12)
-
-        irods_title = QLabel("iRODS session")
-        irods_title.setObjectName("irodsCardTitle")
-
-        form_layout = QFormLayout()
-        form_layout.setSpacing(10)
-        form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        self.irods_host_input = QLineEdit()
-        self.irods_port_input = QSpinBox()
-        self.irods_port_input.setRange(1, 65535)
-        self.irods_user_name_input = QLineEdit()
-        self.irods_password_input = QLineEdit()
-        self.irods_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.irods_zone_name_input = QLineEdit()
-        form_layout.addRow("Host", self.irods_host_input)
-        form_layout.addRow("Port", self.irods_port_input)
-        form_layout.addRow("User", self.irods_user_name_input)
-        form_layout.addRow("Password", self.irods_password_input)
-        form_layout.addRow("Zone", self.irods_zone_name_input)
-
-        irods_layout.addWidget(irods_title)
-        irods_layout.addLayout(form_layout)
-
         retry_card = QFrame()
         retry_card.setFrameShape(QFrame.Shape.StyledPanel)
         retry_card.setObjectName("retryCard")
@@ -1103,9 +1072,9 @@ class SettingsWindow(QWidget):
 
         settings_button_row = QHBoxLayout()
         settings_button_row.setSpacing(10)
-        self.save_settings_button = QPushButton("Save Settings")
-        self.save_settings_button.clicked.connect(self._emit_save_settings_requested)
-        settings_button_row.addWidget(self.save_settings_button)
+        self.save_retry_settings_button = QPushButton("Save Retry Settings")
+        self.save_retry_settings_button.clicked.connect(self._emit_save_retry_settings_requested)
+        settings_button_row.addWidget(self.save_retry_settings_button)
         settings_button_row.addStretch(1)
 
         directory_card = QFrame()
@@ -1183,7 +1152,6 @@ class SettingsWindow(QWidget):
         settings_layout = QVBoxLayout(settings_tab)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(14)
-        settings_layout.addWidget(irods_card)
         settings_layout.addWidget(retry_card)
         settings_layout.addLayout(settings_button_row)
         settings_layout.addStretch(1)
@@ -1252,13 +1220,8 @@ class SettingsWindow(QWidget):
         self._update_remove_button_state()
 
     def set_irods_environment(self, environment: IRODSEnvironment) -> None:
-        """Populate the iRODS settings form from persisted configuration."""
+        """Update the session header and the zone used for new folder targets."""
 
-        self.irods_host_input.setText(environment.irods_host)
-        self.irods_port_input.setValue(environment.irods_port)
-        self.irods_user_name_input.setText(environment.irods_user_name)
-        self.irods_password_input.clear()
-        self.irods_zone_name_input.setText(environment.irods_zone_name)
         self._irods_zone_for_new_folders = environment.irods_zone_name
         if environment.irods_user_name and environment.irods_host and environment.irods_zone_name:
             self.session_summary_label.setText(
@@ -1287,17 +1250,6 @@ class SettingsWindow(QWidget):
             )
             self.failed_uploads_list.addItem(item)
         self._update_retry_failed_button_state()
-
-    def get_irods_environment(self) -> IRODSEnvironment:
-        """Collect the current form values into the config dataclass."""
-
-        return IRODSEnvironment(
-            irods_host=self.irods_host_input.text().strip(),
-            irods_port=self.irods_port_input.value(),
-            irods_user_name=self.irods_user_name_input.text().strip(),
-            irods_password=self.irods_password_input.text(),
-            irods_zone_name=self.irods_zone_name_input.text().strip(),
-        )
 
     def set_retry_config(self, retry: RetryConfig) -> None:
         """Populate the retry controls from the persisted app configuration."""
@@ -1373,10 +1325,10 @@ class SettingsWindow(QWidget):
         local_path = item.data(Qt.ItemDataRole.UserRole)
         self.retry_failed_upload_requested.emit(local_path)
 
-    def _emit_save_settings_requested(self, _checked: bool = False) -> None:
-        """Notify the controller that the user wants to persist all settings."""
+    def _emit_save_retry_settings_requested(self, _checked: bool = False) -> None:
+        """Notify the controller that the user wants to persist retry settings."""
 
-        self.save_settings_requested.emit()
+        self.save_retry_settings_requested.emit()
 
     def _update_remove_button_state(self, *_args) -> None:
         """Enable removal only when the user has a directory selected in the list."""
