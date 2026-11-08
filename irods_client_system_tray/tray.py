@@ -21,6 +21,7 @@ from .config import (
     IRODSEnvironmentStore,
     MonitoredDirectory,
     build_retry_settings_user_key,
+    find_overlapping_monitored_directory,
     normalize_directory,
     normalize_retry_config,
     normalize_file_path,
@@ -234,21 +235,16 @@ class TrayController(QObject):
             )
             return
 
-        source_path = Path(normalized_source)
-        for directory in self.config.monitored_directories:
-            watched_path = Path(directory.source_directory)
-            if source_path.is_relative_to(watched_path):
-                self.window.set_status_message(
-                    f"{normalized_source} is already monitored through recursive watch {directory.source_directory}",
-                    is_error=True,
-                )
-                return
-            if watched_path.is_relative_to(source_path):
-                self.window.set_status_message(
-                    f"Recursive watch {normalized_source} would overlap existing folder {directory.source_directory}",
-                    is_error=True,
-                )
-                return
+        overlapping_root = find_overlapping_monitored_directory(
+            normalized_source,
+            (directory.source_directory for directory in self.config.monitored_directories),
+        )
+        if overlapping_root is not None:
+            self.window.set_status_message(
+                f"Cannot monitor {normalized_source}: overlaps monitored folder {overlapping_root}.",
+                is_error=True,
+            )
+            return
 
         self.config.monitored_directories.append(
             MonitoredDirectory(

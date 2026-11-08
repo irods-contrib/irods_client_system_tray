@@ -39,6 +39,7 @@ from .config import (
     MonitoredDirectory,
     RetryConfig,
     RegexFilterConfig,
+    find_overlapping_monitored_directory,
     normalize_directory,
     normalize_irods_zone_name,
 )
@@ -909,6 +910,15 @@ class AddDirectoryDialog(QDialog):
         source_directory = self.source_directory_input.text().strip()
         if not source_directory:
             self.validation_label.setText("Select a source directory to monitor.")
+            return
+
+        overlapping_root = find_overlapping_monitored_directory(
+            source_directory, self._monitored_roots
+        )
+        if overlapping_root is not None:
+            self.validation_label.setText(
+                f"Cannot monitor this folder: overlaps monitored folder {overlapping_root}."
+            )
             return
 
         if self.post_upload_action_input.currentData() == "move":

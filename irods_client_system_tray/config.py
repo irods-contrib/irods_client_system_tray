@@ -104,6 +104,19 @@ def normalize_directory(path: str) -> str:
     return str(Path(path).expanduser().resolve(strict=False))
 
 
+def find_overlapping_monitored_directory(
+    source_directory: str, monitored_roots: Iterable[str]
+) -> str | None:
+    """Return a watched root if either folder contains the other."""
+
+    source_path = Path(normalize_directory(source_directory))
+    for root in monitored_roots:
+        watched_path = Path(normalize_directory(root))
+        if source_path.is_relative_to(watched_path) or watched_path.is_relative_to(source_path):
+            return str(watched_path)
+    return None
+
+
 def normalize_post_upload_action(action: str) -> str:
     """Return a supported post-upload action or fall back to the safe default."""
 
