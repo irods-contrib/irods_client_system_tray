@@ -12,6 +12,8 @@ import socket
 import threading
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel
 
 from irods_client_system_tray.activity_log import ActivityLog
 from irods_client_system_tray.config import (
@@ -53,6 +55,37 @@ def test_settings_window_uses_irods_ingest_name(settings_window):
     assert settings_window.windowTitle() == "iRODS Ingest"
     assert settings_window.title_label.text() == "iRODS Ingest"
     assert not hasattr(settings_window, "subtitle_label")
+
+
+def test_session_summary_is_right_aligned_in_the_window_header(settings_window):
+    settings_window.set_irods_environment(
+        IRODSEnvironment(
+            irods_user_name="alice",
+            irods_zone_name="tempZone",
+            irods_host="irods.example.org",
+            irods_port=1247,
+        )
+    )
+
+    assert settings_window.session_summary_label.text() == "alice#tempZone"
+    assert settings_window.session_host_label.text() == "irods.example.org:1247"
+    assert not settings_window.session_host_label.isHidden()
+    assert settings_window.session_summary_label.parent() is settings_window
+    assert settings_window.tabs.widget(0).findChildren(QLabel, "sessionUserZoneLabel") == []
+    assert settings_window.session_summary_label.alignment() & Qt.AlignmentFlag.AlignRight
+    assert settings_window.session_host_label.alignment() & Qt.AlignmentFlag.AlignRight
+
+
+def test_session_summary_clears_when_no_connection_is_configured(settings_window):
+    settings_window.set_irods_environment(
+        IRODSEnvironment(irods_user_name="alice", irods_host="irods.example.org")
+    )
+
+    settings_window.set_irods_environment(IRODSEnvironment())
+
+    assert settings_window.session_summary_label.text() == "No iRODS session is configured"
+    assert settings_window.session_host_label.text() == ""
+    assert settings_window.session_host_label.isHidden()
 
 
 def test_status_line_is_hidden_without_a_message(settings_window):
