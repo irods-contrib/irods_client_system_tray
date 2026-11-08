@@ -509,7 +509,8 @@ class TrayController(QObject):
         self.window.set_irods_environment(environment)
         self.window.set_retry_config(self.config.retry)
         self.window.append_activity(
-            f"signed in as {environment.irods_user_name}@{environment.irods_host}:{environment.irods_port}"
+            f"signed in as {environment.irods_user_name}#{environment.irods_zone_name} "
+            f"to {environment.irods_host}:{environment.irods_port}"
         )
         self._sync_from_config()
 
