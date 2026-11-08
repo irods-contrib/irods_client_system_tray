@@ -21,6 +21,7 @@ from PySide6.QtCore import QEvent, QObject
 
 from irods_client_system_tray import config
 from irods_client_system_tray.config import (
+    AppConfig,
     IRODSEnvironment,
     MonitoredDirectory,
     RegexFilterConfig,
@@ -96,6 +97,22 @@ def _stored_folders(controller) -> list[tuple[str, str]]:
         (directory.source_directory, directory.target_collection)
         for directory in controller.config.monitored_directories
     ]
+
+
+def _controller_with_saved_folders(tmp_path, monkeypatch, qapp, directories, *, active=True):
+    config_path = tmp_path / "app_state.json"
+    config.ConfigStore(config_path).save(
+        AppConfig(is_monitoring_active=active, monitored_directories=directories)
+    )
+    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+    monkeypatch.setattr(config, "IRODS_ENVIRONMENT_PATH", tmp_path / "irods_environment.json")
+
+    from irods_client_system_tray.tray import TrayController
+
+    controller = TrayController(qapp)
+    controller.queue_upload.disconnect(controller.upload_worker.upload_file)
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    return controller
 
 
 # --- adding folders -------------------------------------------------------------
@@ -186,6 +203,77 @@ def test_adding_folder_scans_existing_files_recursively_through_filters(
     controller._sync_from_config()
     qapp.processEvents()
     assert queued_uploads == []
+
+
+def test_login_scans_saved_folders_for_files_added_while_app_was_closed(
+    tmp_path, monkeypatch, qapp
+):
+    folder = tmp_path / "watched"
+    (folder / "nested").mkdir(parents=True)
+    expected = {folder / "report.csv", folder / "nested" / "deep.csv"}
+    for path in expected:
+        path.write_text("data", encoding="utf-8")
+    (folder / "ignored.txt").write_text("data", encoding="utf-8")
+    controller = _controller_with_saved_folders(
+        tmp_path, monkeypatch, qapp,
+        [MonitoredDirectory(
+            str(folder), "/tempZone/home/alice",
+            regex_filter=RegexFilterConfig(mode="allow", patterns=[r"\.csv$"]),
+        )],
+    )
+    sent = []
+    controller.queue_upload.connect(lambda *args: sent.append(args))
+
+    try:
+        qapp.processEvents()
+        assert sent == []  # Sign-in must happen before uploads can be queued.
+
+        controller._complete_login(IRODSEnvironment(
+            irods_host="irods.example.org", irods_user_name="alice",
+            irods_password="alicepass", irods_zone_name="tempZone",
+        ))
+        for _ in range(20):
+            qapp.processEvents()
+            if not controller._initial_scan_iterators:
+                break
+
+        assert {upload[0] for upload in sent} == {str(path) for path in expected}
+        assert not controller._pending_initial_scans
+
+        sent.clear()
+        controller._queued_uploads.clear()
+        controller._sync_from_config()
+        qapp.processEvents()
+        assert sent == []  # Refreshing settings must not repeat the startup pass.
+    finally:
+        controller.shutdown()
+
+
+def test_saved_folder_scan_waits_until_monitoring_resumes(tmp_path, monkeypatch, qapp):
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    existing = folder / "offline.txt"
+    existing.write_text("data", encoding="utf-8")
+    controller = _controller_with_saved_folders(
+        tmp_path, monkeypatch, qapp,
+        [MonitoredDirectory(str(folder), "/tempZone/home/alice")], active=False,
+    )
+    sent = []
+    controller.queue_upload.connect(lambda *args: sent.append(args))
+
+    try:
+        controller._complete_login(IRODSEnvironment(
+            irods_host="irods.example.org", irods_user_name="alice",
+            irods_password="alicepass", irods_zone_name="tempZone",
+        ))
+        qapp.processEvents()
+        assert sent == []
+
+        controller.set_monitoring_active(True)
+        qapp.processEvents()
+        assert [upload[0] for upload in sent] == [str(existing)]
+    finally:
+        controller.shutdown()
 
 
 def test_initial_scan_waits_until_monitoring_is_enabled(controller, qapp, monkeypatch, tmp_path):

@@ -83,7 +83,9 @@ class TrayController(QObject):
         self.window = SettingsWindow()
         self._queued_uploads: dict[str, UploadJob] = {}
         self._failed_uploads: dict[str, UploadJob] = {}
-        self._pending_initial_scans: set[str] = set()
+        self._pending_initial_scans: set[str] = {
+            directory.source_directory for directory in self.config.monitored_directories
+        }
         self._initial_scan_iterators: dict[str, Iterator[str]] = {}
         self._scheduled_initial_scans: set[str] = set()
         self._is_shutting_down = False
@@ -490,7 +492,7 @@ class TrayController(QObject):
         self._sync_from_config()
 
     def _resume_initial_scans(self) -> None:
-        """Start or resume one scan for each newly added folder when monitoring is on."""
+        """Scan saved and newly added folders once when monitoring is available."""
 
         if self._is_shutting_down or not self._is_authenticated or not self.config.is_monitoring_active:
             return
