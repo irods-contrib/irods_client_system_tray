@@ -13,6 +13,7 @@ from unittest.mock import Mock
 
 from watchdog.events import (
     DirCreatedEvent,
+    DirDeletedEvent,
     DirMovedEvent,
     FileCreatedEvent,
     FileMovedEvent,
@@ -20,7 +21,10 @@ from watchdog.events import (
 from watchdog.observers.api import ObservedWatch
 
 from irods_client_system_tray.config import MonitoredDirectory
-from irods_client_system_tray.monitor import EventBridge, IngestionEventHandler, MonitorManager
+import irods_client_system_tray.monitor as monitor_module
+from irods_client_system_tray.monitor import (
+    EventBridge, IngestionEventHandler, MonitorManager, ParentDirectoryEventHandler,
+)
 
 
 def _manager_watching(*paths: Path) -> tuple[MonitorManager, list[tuple]]:
@@ -145,6 +149,125 @@ def test_sync_replaces_non_recursive_watch_and_schedules_recursive_folders(
     observer.unschedule.assert_called_once_with(old_watch)
     assert manager._directory_watches[str(watched)].is_recursive
     assert manager._parent_watches[str(tmp_path)].is_recursive is False
+
+
+def test_sync_reuses_existing_watches_then_removes_unconfigured_folder(tmp_path, monkeypatch):
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    manager = MonitorManager()
+    observer = Mock()
+    observer.schedule.side_effect = lambda _handler, path, recursive: ObservedWatch(
+        path, recursive=recursive
+    )
+    manager._observer = observer
+    monkeypatch.setattr(manager, "_ensure_running", lambda: True)
+    directories = [MonitoredDirectory(str(watched))]
+
+    manager.sync(directories, is_active=True)
+    manager.sync(directories, is_active=True)
+    assert observer.schedule.call_count == 2  # Folder and parent, not duplicates.
+
+    manager.sync([], is_active=True)
+    assert observer.unschedule.call_count == 2
+    assert manager._directory_watches == {}
+    assert manager._parent_watches == {}
+    assert manager._parent_children == {}
+
+
+def test_sync_reports_folder_watch_errors_but_still_watches_parent(tmp_path, monkeypatch):
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    manager = MonitorManager()
+    observer = Mock()
+
+    def schedule(_handler, path, recursive):
+        if recursive:
+            raise OSError("out of watches")
+        return ObservedWatch(path, recursive=False)
+
+    observer.schedule.side_effect = schedule
+    manager._observer = observer
+    monkeypatch.setattr(manager, "_ensure_running", lambda: True)
+    errors = []
+    manager.monitor_error.connect(errors.append)
+
+    manager.sync([MonitoredDirectory(str(watched))], is_active=True)
+
+    assert errors == [f"Failed to watch {watched}: out of watches"]
+    assert manager._directory_watches == {}
+    assert str(tmp_path) in manager._parent_watches
+
+
+def test_sync_reports_parent_watch_errors_without_dropping_folder(tmp_path, monkeypatch):
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    manager = MonitorManager()
+    observer = Mock()
+
+    def schedule(_handler, path, recursive):
+        if not recursive:
+            raise OSError("permission denied")
+        return ObservedWatch(path, recursive=True)
+
+    observer.schedule.side_effect = schedule
+    manager._observer = observer
+    monkeypatch.setattr(manager, "_ensure_running", lambda: True)
+    errors = []
+    manager.monitor_error.connect(errors.append)
+
+    manager.sync([MonitoredDirectory(str(watched))], is_active=True)
+
+    assert errors == [f"Failed to watch parent folder {tmp_path}: permission denied"]
+    assert str(watched) in manager._directory_watches
+    assert manager._parent_watches == {}
+
+
+def test_observer_startup_failure_is_reported_without_scheduling(monkeypatch, tmp_path):
+    observer = Mock()
+    observer.start.side_effect = OSError("watch service unavailable")
+    monkeypatch.setattr(monitor_module, "Observer", lambda: observer)
+    manager = MonitorManager()
+    errors = []
+    manager.monitor_error.connect(errors.append)
+
+    manager.sync([MonitoredDirectory(str(tmp_path))], is_active=True)
+
+    assert errors == ["Failed to start background monitor: watch service unavailable"]
+    assert manager._observer is None
+    observer.schedule.assert_not_called()
+
+
+def test_stop_clears_watches_and_joins_the_observer(tmp_path):
+    manager = MonitorManager()
+    observer = Mock()
+    manager._observer = observer
+    manager._directory_watches[str(tmp_path)] = ObservedWatch(str(tmp_path), recursive=True)
+    manager._parent_watches[str(tmp_path.parent)] = ObservedWatch(
+        str(tmp_path.parent), recursive=False
+    )
+    manager._parent_children[str(tmp_path.parent)] = {str(tmp_path)}
+
+    manager.shutdown()
+
+    observer.stop.assert_called_once()
+    observer.join.assert_called_once_with(timeout=5)
+    assert manager._observer is None
+    assert manager._directory_watches == manager._parent_watches == manager._parent_children == {}
+
+
+def test_parent_handler_forwards_move_and_delete_events(tmp_path):
+    watched = tmp_path / "watched"
+    watched.mkdir()
+    manager, received = _manager_watching(watched)
+    handler = ParentDirectoryEventHandler(manager._bridge)
+
+    handler.on_moved(DirMovedEvent(str(watched), str(tmp_path / "renamed")))
+    handler.on_deleted(DirDeletedEvent(str(watched)))
+
+    assert received == [
+        ("renamed", str(watched), str(tmp_path / "renamed")),
+        ("deleted", str(watched)),
+    ]
 
 
 def test_ingestion_handler_queues_files_but_not_directories(tmp_path):

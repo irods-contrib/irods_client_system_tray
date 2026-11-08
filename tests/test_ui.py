@@ -9,11 +9,13 @@ probe is aimed at a local socket.
 from __future__ import annotations
 
 import socket
+import sys
 import threading
+from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSpinBox
+from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QSpinBox
 
 from irods_client_system_tray.activity_log import ActivityLog
 import irods_client_system_tray.config as config_module
@@ -26,9 +28,11 @@ from irods_client_system_tray.ui import (
     AddDirectoryDialog,
     LoginDialog,
     LoginWorker,
+    RegexEditorDialog,
     SettingsWindow,
     ZoneRootLineEdit,
 )
+import irods_client_system_tray.ui as ui_module
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -230,6 +234,95 @@ def test_login_progress_message_uses_logging_in(login_dialog, monkeypatch):
     assert login_dialog.status_label.text() == "Logging in to iRODS..."
 
 
+@pytest.mark.parametrize("outcome", ["success", "authentication_failed", "unreachable"])
+def test_login_worker_reports_authentication_outcomes(monkeypatch, outcome):
+    from irods import session as irods_session
+
+    environment = IRODSEnvironment(
+        irods_host="irods.example.org", irods_user_name="alice",
+        irods_password="password", irods_zone_name="tempZone",
+    )
+    worker = LoginWorker(environment)
+    fake_session = MagicMock()
+    fake_session.__enter__.return_value = fake_session
+    monkeypatch.setattr(irods_session, "iRODSSession", lambda **_kwargs: fake_session)
+    if outcome == "authentication_failed":
+        fake_session.users.get.side_effect = ValueError("invalid credentials")
+    if outcome == "unreachable":
+        def fail_probe():
+            raise OSError("connection refused")
+        monkeypatch.setattr(worker, "_probe_server_heartbeat", fail_probe)
+    else:
+        monkeypatch.setattr(worker, "_probe_server_heartbeat", lambda: None)
+    results = []
+    finished = []
+    worker.authentication_finished.connect(lambda *args: results.append(args))
+    worker.finished.connect(lambda: finished.append(True))
+
+    worker.authenticate()
+
+    assert finished == [True]
+    assert len(results) == 1
+    assert results[0][0] is (outcome == "success")
+    if outcome != "success":
+        assert isinstance(results[0][1], (OSError, ValueError))
+    if outcome == "unreachable":
+        fake_session.users.get.assert_not_called()
+    else:
+        fake_session.users.get.assert_called_once_with("alice", "tempZone")
+
+
+def test_login_worker_reports_missing_irods_client(monkeypatch):
+    worker = LoginWorker(IRODSEnvironment())
+    monkeypatch.setitem(sys.modules, "irods.session", None)
+    results = []
+    worker.authentication_finished.connect(lambda *args: results.append(args))
+
+    worker.authenticate()
+
+    assert results[0][0] is False
+    assert "python-irodsclient is not installed" in str(results[0][1])
+
+
+def test_login_probe_explains_connection_refusal(monkeypatch):
+    def refuse(_address, *, timeout):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr("irods_client_system_tray.ui.socket.create_connection", refuse)
+    worker = LoginWorker(IRODSEnvironment(irods_host="irods.example.org"))
+
+    with pytest.raises(OSError, match="Could not reach iRODS server at irods.example.org:1247"):
+        worker._probe_server_heartbeat()
+
+
+@pytest.mark.parametrize("outcome", ["no_result", "failure", "missing_state", "success"])
+def test_login_dialog_finalizes_worker_outcomes(login_dialog, outcome):
+    login_dialog.password_input.setText("password")
+    login_dialog._pending_login = ("irods.example.org", 1247, "tempZone", "alice", "password")
+    if outcome == "failure":
+        login_dialog._auth_result = (False, ValueError("CAT_INVALID_AUTHENTICATION"))
+    elif outcome in {"missing_state", "success"}:
+        login_dialog._auth_result = (True, None)
+    if outcome == "missing_state":
+        login_dialog._pending_login = None
+
+    login_dialog._finalize_authentication_attempt()
+
+    assert login_dialog.sign_in_button.isEnabled()
+    if outcome == "success":
+        assert login_dialog.result() == login_dialog.DialogCode.Accepted
+        assert login_dialog.authenticated_environment == IRODSEnvironment(
+            irods_host="irods.example.org", irods_user_name="alice",
+            irods_password="password", irods_zone_name="tempZone",
+        )
+    else:
+        assert login_dialog.result() != login_dialog.DialogCode.Accepted
+        assert login_dialog.status_label.text()
+    if outcome == "failure":
+        assert login_dialog.password_input.text() == ""
+        assert "CAT_INVALID_AUTHENTICATION" in login_dialog.error_details_view.toPlainText()
+
+
 # --- heartbeat probe ------------------------------------------------------------
 
 
@@ -299,6 +392,77 @@ def test_add_folder_dialog_returns_the_entered_values(tmp_path):
     )
 
 
+def test_regex_editor_validates_lines_before_accepting():
+    editor = RegexEditorDialog([r"\.csv$"])
+    editor.pattern_input.setPlainText("  .*\\.csv$  \n  \n[")
+
+    editor._accept_if_valid()
+
+    assert "Invalid regex on line 3" in editor.validation_label.text()
+    assert editor.patterns == [r"\.csv$"]
+    assert editor.result() != QDialog.DialogCode.Accepted
+
+    editor.pattern_input.setPlainText("  .*\\.csv$  \n  \n^report_")
+    editor._accept_if_valid()
+
+    assert editor.patterns == [r".*\.csv$", "^report_"]
+    assert editor.validation_label.text() == ""
+    assert editor.result() == QDialog.DialogCode.Accepted
+
+
+def test_add_folder_dialog_requires_patterns_when_regex_filter_is_enabled(tmp_path):
+    dialog = AddDirectoryDialog("tempZone", [])
+    dialog.source_directory_input.setText(str(tmp_path))
+    dialog.regex_filter_toggle.setChecked(True)
+
+    dialog._accept_if_valid()
+    assert "Add at least one regex pattern" in dialog.validation_label.text()
+
+    dialog._regex_patterns = [r"\.csv$"]
+    dialog.regex_allow_radio.setChecked(True)
+    dialog._update_regex_summary()
+    dialog._accept_if_valid()
+
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert dialog.get_directory().regex_filter.mode == "allow"
+    assert dialog.get_directory().regex_filter.patterns == [r"\.csv$"]
+    assert "1 pattern configured" in dialog.regex_summary_label.text()
+
+
+def test_add_folder_dialog_keeps_existing_patterns_when_editor_is_cancelled(monkeypatch):
+    dialog = AddDirectoryDialog("tempZone", [])
+    dialog._regex_patterns = ["old"]
+
+    class CancelledEditor:
+        def __init__(self, _patterns, _parent):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(ui_module, "RegexEditorDialog", CancelledEditor)
+    dialog._edit_regex_patterns()
+
+    assert dialog._regex_patterns == ["old"]
+
+
+def test_add_folder_dialog_applies_edited_patterns(monkeypatch):
+    dialog = AddDirectoryDialog("tempZone", [])
+
+    class AcceptedEditor:
+        def __init__(self, _patterns, _parent):
+            self.patterns = ["one", "two"]
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ui_module, "RegexEditorDialog", AcceptedEditor)
+    dialog._edit_regex_patterns()
+
+    assert dialog._regex_patterns == ["one", "two"]
+    assert "2 patterns configured" in dialog.regex_summary_label.text()
+
+
 @pytest.mark.parametrize("candidate", ["parent", "child", "same"])
 def test_add_folder_dialog_rejects_overlapping_folders(tmp_path, candidate):
     watched = tmp_path / "parent" / "watched"
@@ -362,6 +526,67 @@ def test_legacy_recycle_folder_is_described_as_trash(settings_window):
     )
 
     assert "send to trash" in settings_window.directory_list.item(0).text()
+
+
+def test_missing_monitored_folder_is_flagged_in_overview(settings_window):
+    directory = MonitoredDirectory("/missing", "/tempZone/home/alice")
+
+    settings_window.set_directories([directory], {"/missing"})
+
+    item = settings_window.directory_list.item(0)
+    assert "does not currently exist" in item.toolTip()
+    assert item.foreground().color().name() == INVALID_DIRECTORY_COLOR
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+def test_add_folder_request_is_emitted_only_for_accepted_dialog(
+    settings_window, monkeypatch, accepted
+):
+    requested = []
+    settings_window.add_folder_requested.connect(requested.append)
+    directory = MonitoredDirectory("/watched", "/tempZone/home/alice")
+
+    class FakeDialog:
+        def __init__(self, zone, watched, parent):
+            assert zone == "tempZone"
+            assert parent is settings_window
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted if accepted else QDialog.DialogCode.Rejected
+
+        def get_directory(self):
+            return directory
+
+    monkeypatch.setattr(ui_module, "AddDirectoryDialog", FakeDialog)
+    settings_window._emit_add_requested()
+
+    assert requested == ([directory] if accepted else [])
+
+
+def test_overview_buttons_emit_selected_folder_and_failed_upload(settings_window):
+    removed = []
+    retried = []
+    settings_window.remove_folder_requested.connect(removed.append)
+    settings_window.retry_failed_upload_requested.connect(retried.append)
+    settings_window.set_directories(
+        [MonitoredDirectory("/watched", "/tempZone/home/alice")], set()
+    )
+    settings_window.set_failed_uploads([("/watched/report.csv", "no route", 2, 3)])
+
+    settings_window._emit_remove_selected()
+    settings_window._emit_retry_failed_upload_requested()
+    assert removed == retried == []
+
+    settings_window.directory_list.setCurrentRow(0)
+    settings_window.failed_uploads_list.setCurrentRow(0)
+    assert settings_window.remove_button.isEnabled()
+    assert settings_window.retry_failed_upload_button.isEnabled()
+    settings_window._emit_remove_selected()
+    settings_window._emit_retry_failed_upload_requested()
+
+    assert removed == ["/watched"]
+    assert retried == ["/watched/report.csv"]
+    assert "no route" in settings_window.failed_uploads_list.item(0).toolTip()
 
 
 def test_setting_the_toggle_does_not_emit_a_change(
