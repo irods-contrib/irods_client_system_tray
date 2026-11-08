@@ -65,7 +65,9 @@ folders. Saved folders using the old "recycle" setting are migrated to "trash".
 
 Adding a monitored folder queues its existing files, including files in subfolders,
 for upload according to its regex filter. If monitoring is paused, the scan waits
-until monitoring is resumed during the same app session.
+until monitoring resumes.
+At startup, saved monitored folders are also scanned once after login so files
+added while the app was closed are picked up.
 
 ## Testing
 
