@@ -493,6 +493,104 @@ def test_increasing_worker_limit_starts_additional_workers(
     assert len(queued_uploads) == 4
 
 
+def test_header_counts_pending_and_active_uploads(controller, queued_uploads, tmp_path):
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    for index in range(controller.config.maximum_upload_workers + 1):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        controller._queue_ingestion(str(path))
+
+    assert controller.window.upload_summary_label.text() == (
+        f"Workers: {controller.config.maximum_upload_workers} "
+        f"({controller.config.maximum_upload_workers} active) · Queued: 1"
+    )
+
+
+def test_header_uses_aggregate_throughput_of_overlapping_uploads(controller):
+    from irods_client_system_tray.tray import UploadJob
+
+    first = UploadJob("/a", "/", "/tempZone")
+    first.size_bytes = 10 * 1024 * 1024
+    first.started_at = 2.0
+    second = UploadJob("/b", "/", "/tempZone")
+    second.size_bytes = 10 * 1024 * 1024
+    second.started_at = 2.0
+
+    controller._record_completed_transfer(first, 12.0)
+    controller._record_completed_transfer(second, 12.0)
+    controller._update_upload_summary()
+
+    assert controller.window.upload_throughput_label.text() == "Recent throughput: 2.0 MiB/s"
+
+
+def test_automatic_mode_changes_active_capacity_when_backlogged(
+    controller, queued_uploads, tmp_path, monkeypatch
+):
+    if config.maximum_upload_workers_limit() < 3:
+        pytest.skip("Needs at least three local CPUs")
+    ensure_workers = controller._ensure_upload_workers
+
+    def safely_add_workers():
+        previous = len(controller._upload_workers)
+        ensure_workers()
+        for slot in controller._upload_workers[previous:]:
+            slot.dispatcher.upload.disconnect(slot.worker.upload_file)
+
+    monkeypatch.setattr(controller, "_ensure_upload_workers", safely_add_workers)
+    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_upload_worker_ceiling_input.setValue(3)
+    controller.window.save_settings_button.click()
+    tuner = controller._auto_workers
+    tuner.MIN_SAMPLES = 1
+    tuner.MIN_WINDOW_SECONDS = 0
+    assert controller.config_store.load().automatic_upload_workers is True
+    assert controller._effective_upload_workers == 2
+
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    for index in range(4):
+        path = folder / f"{index}.txt"
+        path.write_text("data", encoding="utf-8")
+        controller._queue_ingestion(str(path))
+    assert len(queued_uploads) == 2
+
+    path = str(folder / "0.txt")
+    controller._handle_upload_started(path, "/tempZone/home/alice/0.txt")
+    controller._queued_uploads[path].started_at = time.monotonic() - 10
+    controller._handle_upload_progress(path, "/tempZone/home/alice/0.txt", 1024, 1024)
+    controller._handle_upload_finished(path, "/tempZone/home/alice/0.txt")
+
+    assert controller._effective_upload_workers == 3
+    assert len(controller._active_uploads) == 3
+    assert len(queued_uploads) == 4
+    assert "Workers: 3 (3 active)" in controller.window.upload_summary_label.text()
+
+
+def test_manual_mode_restores_the_saved_manual_worker_count(controller):
+    controller.window.maximum_upload_workers_input.setValue(1)
+    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.save_settings_button.click()
+
+    assert controller._effective_upload_workers == min(
+        2, controller.config.automatic_upload_worker_ceiling
+    )
+    assert controller.config.maximum_upload_workers == 1
+
+    controller.window.automatic_upload_workers_checkbox.setChecked(False)
+    controller.window.save_settings_button.click()
+
+    assert controller._auto_workers is None
+    assert controller._effective_upload_workers == 1
+    assert controller.config_store.load().automatic_upload_workers is False
+
+
 def test_pausing_an_initial_scan_preserves_remaining_files(
     controller, queued_uploads, qapp, monkeypatch, tmp_path
 ):

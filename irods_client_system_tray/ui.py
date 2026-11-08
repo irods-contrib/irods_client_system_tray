@@ -36,6 +36,7 @@ from .activity_log import ActivityLog
 from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     DEFAULT_MAXIMUM_UPLOAD_WORKERS,
+    DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING,
     IRODSEnvironment,
     MonitoredDirectory,
     RetryConfig,
@@ -1025,6 +1026,12 @@ class SettingsWindow(QWidget):
         self.session_host_label.setObjectName("sessionHostLabel")
         self.session_host_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.session_host_label.hide()
+        self.upload_summary_label = QLabel()
+        self.upload_summary_label.setObjectName("uploadSummaryLabel")
+        self.upload_summary_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.upload_throughput_label = QLabel()
+        self.upload_throughput_label.setObjectName("uploadThroughputLabel")
+        self.upload_throughput_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.monitor_toggle = QCheckBox("Background monitoring enabled")
         self.monitor_toggle.toggled.connect(self.monitoring_toggled)
@@ -1072,14 +1079,28 @@ class SettingsWindow(QWidget):
         self.maximum_upload_workers_input.setValue(
             min(DEFAULT_MAXIMUM_UPLOAD_WORKERS, maximum_upload_workers_limit())
         )
+        self.automatic_upload_workers_checkbox = QCheckBox("Automatic upload workers")
+        self.automatic_upload_workers_checkbox.toggled.connect(self._update_worker_mode_state)
+        self.automatic_upload_worker_ceiling_input = QSpinBox()
+        self.automatic_upload_worker_ceiling_input.setRange(1, maximum_upload_workers_limit())
+        self.automatic_upload_worker_ceiling_input.setValue(
+            min(DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING, maximum_upload_workers_limit())
+        )
+        self.auto_worker_status_label = QLabel()
+        self.auto_worker_status_label.setWordWrap(True)
+        self.auto_worker_status_label.hide()
 
         retry_form_layout.addRow("Retry attempts", self.retry_attempts_input)
         retry_form_layout.addRow("Initial delay (s)", self.retry_first_delay_input)
         retry_form_layout.addRow("Backoff multiplier", self.retry_backoff_multiplier_input)
+        retry_form_layout.addRow(self.automatic_upload_workers_checkbox)
         retry_form_layout.addRow("Maximum upload workers", self.maximum_upload_workers_input)
+        retry_form_layout.addRow("Automatic ceiling", self.automatic_upload_worker_ceiling_input)
 
         retry_layout.addWidget(retry_title)
         retry_layout.addLayout(retry_form_layout)
+        retry_layout.addWidget(self.auto_worker_status_label)
+        self._update_worker_mode_state()
 
         settings_button_row = QHBoxLayout()
         settings_button_row.setSpacing(10)
@@ -1181,6 +1202,8 @@ class SettingsWindow(QWidget):
         session_layout.setSpacing(2)
         session_layout.addWidget(self.session_summary_label)
         session_layout.addWidget(self.session_host_label)
+        session_layout.addWidget(self.upload_summary_label)
+        session_layout.addWidget(self.upload_throughput_label)
         header_layout.addLayout(session_layout)
         layout.addLayout(header_layout)
         layout.addWidget(self.monitor_toggle)
@@ -1286,6 +1309,43 @@ class SettingsWindow(QWidget):
 
     def get_maximum_upload_workers(self) -> int:
         return self.maximum_upload_workers_input.value()
+
+    def set_automatic_upload_workers(self, automatic: bool, ceiling: int) -> None:
+        self.automatic_upload_worker_ceiling_input.setRange(1, maximum_upload_workers_limit())
+        self.automatic_upload_worker_ceiling_input.setValue(ceiling)
+        self.automatic_upload_workers_checkbox.setChecked(automatic)
+        self._update_worker_mode_state()
+
+    def get_automatic_upload_workers(self) -> bool:
+        return self.automatic_upload_workers_checkbox.isChecked()
+
+    def get_automatic_upload_worker_ceiling(self) -> int:
+        return self.automatic_upload_worker_ceiling_input.value()
+
+    def set_auto_worker_status(self, workers: int, throughput: float | None) -> None:
+        message = f"Currently using {workers} upload worker{'s' if workers != 1 else ''}"
+        if throughput is None:
+            message += " · gathering transfer data"
+        else:
+            message += f" · recent throughput {throughput / (1024 * 1024):.1f} MiB/s"
+        self.auto_worker_status_label.setText(message)
+
+    def set_upload_summary(
+        self, workers: int, active: int, queued: int, throughput: float | None
+    ) -> None:
+        """Show live queue capacity and recent completed-upload throughput."""
+
+        self.upload_summary_label.setText(
+            f"Workers: {workers} ({active} active) · Queued: {queued}"
+        )
+        rate = "gathering data" if throughput is None else f"{throughput / (1024 * 1024):.1f} MiB/s"
+        self.upload_throughput_label.setText(f"Recent throughput: {rate}")
+
+    def _update_worker_mode_state(self, *_args) -> None:
+        automatic = self.automatic_upload_workers_checkbox.isChecked()
+        self.maximum_upload_workers_input.setEnabled(not automatic)
+        self.automatic_upload_worker_ceiling_input.setEnabled(automatic)
+        self.auto_worker_status_label.setVisible(automatic)
 
     def set_status_message(self, message: str, *, is_error: bool = False) -> None:
         """Show a normal or error status message near the top of the window."""
