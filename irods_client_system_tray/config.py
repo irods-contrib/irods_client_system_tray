@@ -31,7 +31,9 @@ CONFIG_PATH = APP_CONFIG_DIR / "app_state.json"
 IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
 ACTIVITY_LOG_PATH = APP_CONFIG_DIR / "activity.log"
 DEFAULT_MAXIMUM_UPLOAD_WORKERS = 2
-DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING = 4
+DEFAULT_MEMORY_CAP_MIB = 256
+MIN_MEMORY_CAP_MIB = 12
+MAX_MEMORY_CAP_MIB = 65536
 WRITE_CHUNK_SIZES_MIB = (4, 8, 16)
 DEFAULT_SINGLE_WRITE_CHUNK_MIB = 8
 DEFAULT_PARALLEL_WRITE_CHUNK_MIB = 4
@@ -50,13 +52,8 @@ class AppConfig:
     maximum_upload_workers: int = field(
         default_factory=lambda: normalize_maximum_upload_workers(DEFAULT_MAXIMUM_UPLOAD_WORKERS)
     )
-    automatic_upload_workers: bool = False
-    automatic_upload_worker_ceiling: int = field(
-        default_factory=lambda: normalize_maximum_upload_workers(
-            DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING
-        )
-    )
-    automatic_write_chunks: bool = False
+    automatic_upload_settings: bool = False
+    memory_cap_mib: int = DEFAULT_MEMORY_CAP_MIB
     single_write_chunk_size_mib: int = DEFAULT_SINGLE_WRITE_CHUNK_MIB
     parallel_write_chunk_size_mib: int = DEFAULT_PARALLEL_WRITE_CHUNK_MIB
     retry: RetryConfig = field(default_factory=lambda: RetryConfig())
@@ -143,6 +140,14 @@ def normalize_write_chunk_size(value: object, default: int) -> int:
     except (TypeError, ValueError, OverflowError):
         return default
     return size if size in WRITE_CHUNK_SIZES_MIB else default
+
+
+def normalize_memory_cap(value: object) -> int:
+    try:
+        cap = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return DEFAULT_MEMORY_CAP_MIB
+    return min(max(cap, MIN_MEMORY_CAP_MIB), MAX_MEMORY_CAP_MIB)
 
 
 def find_overlapping_monitored_directory(
@@ -441,13 +446,14 @@ class ConfigStore:
             maximum_upload_workers=normalize_maximum_upload_workers(
                 payload.get("maximum_upload_workers", DEFAULT_MAXIMUM_UPLOAD_WORKERS)
             ),
-            automatic_upload_workers=payload.get("automatic_upload_workers") is True,
-            automatic_upload_worker_ceiling=normalize_maximum_upload_workers(
-                payload.get(
-                    "automatic_upload_worker_ceiling", DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING
+            automatic_upload_settings=(
+                payload.get("automatic_upload_settings") is True
+                if "automatic_upload_settings" in payload else (
+                    payload.get("automatic_upload_workers") is True
+                    or payload.get("automatic_write_chunks") is True
                 )
             ),
-            automatic_write_chunks=payload.get("automatic_write_chunks") is True,
+            memory_cap_mib=normalize_memory_cap(payload.get("memory_cap_mib", DEFAULT_MEMORY_CAP_MIB)),
             single_write_chunk_size_mib=normalize_write_chunk_size(
                 payload.get("single_write_chunk_size_mib"), DEFAULT_SINGLE_WRITE_CHUNK_MIB
             ),
@@ -470,11 +476,8 @@ class ConfigStore:
         payload = {
             "is_monitoring_active": bool(config.is_monitoring_active),
             "maximum_upload_workers": normalize_maximum_upload_workers(config.maximum_upload_workers),
-            "automatic_upload_workers": bool(config.automatic_upload_workers),
-            "automatic_upload_worker_ceiling": normalize_maximum_upload_workers(
-                config.automatic_upload_worker_ceiling
-            ),
-            "automatic_write_chunks": bool(config.automatic_write_chunks),
+            "automatic_upload_settings": bool(config.automatic_upload_settings),
+            "memory_cap_mib": normalize_memory_cap(config.memory_cap_mib),
             "single_write_chunk_size_mib": normalize_write_chunk_size(
                 config.single_write_chunk_size_mib, DEFAULT_SINGLE_WRITE_CHUNK_MIB
             ),

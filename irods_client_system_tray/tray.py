@@ -29,6 +29,8 @@ from .config import (
     find_overlapping_monitored_directory,
     normalize_maximum_upload_workers,
     normalize_write_chunk_size,
+    normalize_memory_cap,
+    maximum_upload_workers_limit,
     DEFAULT_SINGLE_WRITE_CHUNK_MIB,
     DEFAULT_PARALLEL_WRITE_CHUNK_MIB,
     normalize_directory,
@@ -41,9 +43,7 @@ from .config import (
     rezone_target_collection,
 )
 from .auto_workers import AutomaticUploadWorkers, TransferSample
-from .auto_chunks import (
-    AutomaticChunkSize, PARALLEL_MEMORY_BUDGET_MIB, PARALLEL_TRANSFER_THREADS,
-)
+from .auto_chunks import AutomaticChunkSize, PARALLEL_TRANSFER_THREADS
 from .irods_worker import IRODSUploadWorker
 from .monitor import MonitorManager
 from .ui import LoginDialog, SettingsWindow
@@ -119,12 +119,9 @@ class TrayController(QObject):
         self.config.maximum_upload_workers = normalize_maximum_upload_workers(
             self.config.maximum_upload_workers
         )
-        self.config.automatic_upload_worker_ceiling = normalize_maximum_upload_workers(
-            self.config.automatic_upload_worker_ceiling
-        )
         self._auto_workers = (
-            AutomaticUploadWorkers(self.config.automatic_upload_worker_ceiling)
-            if self.config.automatic_upload_workers else None
+            AutomaticUploadWorkers(maximum_upload_workers_limit())
+            if self.config.automatic_upload_settings else None
         )
         self._effective_upload_workers = (
             self._auto_workers.current if self._auto_workers else self.config.maximum_upload_workers
@@ -134,9 +131,12 @@ class TrayController(QObject):
         self._chunk_tuners = (
             {
                 False: AutomaticChunkSize(self._single_chunk_mib),
-                True: AutomaticChunkSize(self._parallel_chunk_mib, parallel=True),
+                True: AutomaticChunkSize(
+                    self._parallel_chunk_mib, parallel=True,
+                    memory_cap_mib=self.config.memory_cap_mib,
+                ),
             }
-            if self.config.automatic_write_chunks else None
+            if self.config.automatic_upload_settings else None
         )
         self._pending_parallel_chunk_mib: int | None = None
         self._configure_parallel_chunk_size(self._parallel_chunk_mib)
@@ -190,11 +190,10 @@ class TrayController(QObject):
         self.window.set_retry_config(self.config.retry)
         self.window.set_maximum_upload_workers(self.config.maximum_upload_workers)
         self.window.set_automatic_upload_workers(
-            self.config.automatic_upload_workers, self.config.automatic_upload_worker_ceiling
+            self.config.automatic_upload_settings, self.config.memory_cap_mib
         )
         self.window.set_write_chunk_settings(
-            self.config.automatic_write_chunks, self.config.single_write_chunk_size_mib,
-            self.config.parallel_write_chunk_size_mib,
+            self.config.single_write_chunk_size_mib, self.config.parallel_write_chunk_size_mib,
         )
         self._show_chunk_status()
         self._show_auto_worker_status()
@@ -412,41 +411,48 @@ class TrayController(QObject):
     def save_settings(self) -> None:
         """Persist retry settings and apply the maximum active upload workers."""
 
-        self.config.maximum_upload_workers = normalize_maximum_upload_workers(
-            self.window.get_maximum_upload_workers()
-        )
         automatic = self.window.get_automatic_upload_workers()
-        ceiling = normalize_maximum_upload_workers(
-            self.window.get_automatic_upload_worker_ceiling()
-        )
-        if automatic != self.config.automatic_upload_workers:
-            self._auto_workers = AutomaticUploadWorkers(ceiling) if automatic else None
-        elif automatic and self._auto_workers is not None:
-            self._auto_workers.set_ceiling(ceiling)
-        self.config.automatic_upload_workers = automatic
-        self.config.automatic_upload_worker_ceiling = ceiling
-        automatic_chunks, single, parallel = self.window.get_write_chunk_settings()
-        self.config.single_write_chunk_size_mib = normalize_write_chunk_size(
-            single, DEFAULT_SINGLE_WRITE_CHUNK_MIB
-        )
-        self.config.parallel_write_chunk_size_mib = normalize_write_chunk_size(
-            parallel, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
-        )
-        if automatic_chunks != self.config.automatic_write_chunks:
+        memory_cap = normalize_memory_cap(self.window.get_memory_cap())
+        cap_changed = memory_cap != self.config.memory_cap_mib
+        self.config.memory_cap_mib = memory_cap
+        if not automatic or not self.config.automatic_upload_settings:
+            self.config.maximum_upload_workers = normalize_maximum_upload_workers(
+                self.window.get_maximum_upload_workers()
+            )
+            single, parallel = self.window.get_write_chunk_settings()
+            self.config.single_write_chunk_size_mib = normalize_write_chunk_size(
+                single, DEFAULT_SINGLE_WRITE_CHUNK_MIB
+            )
+            self.config.parallel_write_chunk_size_mib = normalize_write_chunk_size(
+                parallel, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
+            )
+        if automatic != self.config.automatic_upload_settings:
+            self._auto_workers = (
+                AutomaticUploadWorkers(maximum_upload_workers_limit()) if automatic else None
+            )
             self._chunk_tuners = (
                 {
                     False: AutomaticChunkSize(self.config.single_write_chunk_size_mib),
-                    True: AutomaticChunkSize(self.config.parallel_write_chunk_size_mib, parallel=True),
+                    True: AutomaticChunkSize(
+                        self.config.parallel_write_chunk_size_mib, parallel=True,
+                        memory_cap_mib=self.config.memory_cap_mib,
+                    ),
                 }
-                if automatic_chunks else None
+                if automatic else None
             )
-        self.config.automatic_write_chunks = automatic_chunks
+        self.config.automatic_upload_settings = automatic
+        if automatic and self._chunk_tuners is not None:
+            self._chunk_tuners[True].memory_cap_mib = self.config.memory_cap_mib
+            if cap_changed:
+                self._chunk_tuners[True].reset()
+                self._chunk_tuners[False].reset()
+                self._auto_workers.reset_observations()
         self._single_chunk_mib = (
-            self._chunk_tuners[False].current if automatic_chunks
+            self._chunk_tuners[False].current if automatic
             else self.config.single_write_chunk_size_mib
         )
         self._queue_parallel_chunk_change(
-            self._chunk_tuners[True].current if automatic_chunks
+            self._chunk_tuners[True].current if automatic
             else self.config.parallel_write_chunk_size_mib
         )
         self._effective_upload_workers = (
@@ -459,11 +465,11 @@ class TrayController(QObject):
         self.config_store.save(self.config)
         self.window.set_retry_config(self.config.retry)
         self.window.set_maximum_upload_workers(self.config.maximum_upload_workers)
-        self.window.set_automatic_upload_workers(automatic, ceiling)
-        self.window.set_write_chunk_settings(
-            automatic_chunks, self.config.single_write_chunk_size_mib,
-            self.config.parallel_write_chunk_size_mib,
-        )
+        self.window.set_automatic_upload_workers(automatic, self.config.memory_cap_mib)
+        if not automatic:
+            self.window.set_write_chunk_settings(
+                self.config.single_write_chunk_size_mib, self.config.parallel_write_chunk_size_mib
+            )
         self._show_chunk_status()
         self._show_auto_worker_status()
         self._ensure_upload_workers()
@@ -576,30 +582,28 @@ class TrayController(QObject):
     def _enforce_chunk_memory_budget(self) -> None:
         if self._chunk_tuners is None:
             return
+        parallel_tuner = self._chunk_tuners[True]
+        parallel_tuner.limit_for_workers(1)
         if self._auto_workers is not None:
             max_at_current_size = max(
-                1, PARALLEL_MEMORY_BUDGET_MIB //
-                (PARALLEL_TRANSFER_THREADS * self._chunk_tuners[True].current)
+                1, self.config.memory_cap_mib //
+                (PARALLEL_TRANSFER_THREADS * parallel_tuner.current)
             )
             self._effective_upload_workers = self._auto_workers.set_ceiling(
-                min(self.config.automatic_upload_worker_ceiling, max_at_current_size)
+                min(maximum_upload_workers_limit(), max_at_current_size)
             )
         max_workers = max(
-            1, PARALLEL_MEMORY_BUDGET_MIB //
+            1, self.config.memory_cap_mib //
             (PARALLEL_TRANSFER_THREADS * 4)
         )
         self._effective_upload_workers = min(self._effective_upload_workers, max_workers)
-        parallel_tuner = self._chunk_tuners[True]
         size = parallel_tuner.limit_for_workers(self._effective_upload_workers)
         self._queue_parallel_chunk_change(size)
 
     def _show_chunk_status(self) -> None:
         if self._chunk_tuners is not None:
-            ceiling = (
-                self.config.automatic_upload_worker_ceiling
-                if self._auto_workers is not None else self.config.maximum_upload_workers
-            )
-            worker_cap = max(1, PARALLEL_MEMORY_BUDGET_MIB // (
+            ceiling = maximum_upload_workers_limit()
+            worker_cap = max(1, self.config.memory_cap_mib // (
                 PARALLEL_TRANSFER_THREADS * self._parallel_chunk_mib
             ))
             self.window.set_chunk_status(
@@ -829,8 +833,9 @@ class TrayController(QObject):
 
         self._is_authenticated = True
         if self._auto_workers is not None:
-            self._auto_workers = AutomaticUploadWorkers(self.config.automatic_upload_worker_ceiling)
+            self._auto_workers = AutomaticUploadWorkers(maximum_upload_workers_limit())
             self._effective_upload_workers = self._auto_workers.current
+            self._enforce_chunk_memory_budget()
             self._show_auto_worker_status()
         self.environment = environment
         self.config.retry = self._retry_config_for_environment(environment)

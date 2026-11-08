@@ -36,7 +36,9 @@ from .activity_log import ActivityLog
 from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     DEFAULT_MAXIMUM_UPLOAD_WORKERS,
-    DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING,
+    DEFAULT_MEMORY_CAP_MIB,
+    MIN_MEMORY_CAP_MIB,
+    MAX_MEMORY_CAP_MIB,
     DEFAULT_SINGLE_WRITE_CHUNK_MIB,
     DEFAULT_PARALLEL_WRITE_CHUNK_MIB,
     WRITE_CHUNK_SIZES_MIB,
@@ -1106,18 +1108,14 @@ class SettingsWindow(QWidget):
         self.maximum_upload_workers_input.setValue(
             min(DEFAULT_MAXIMUM_UPLOAD_WORKERS, maximum_upload_workers_limit())
         )
-        self.automatic_upload_workers_checkbox = QCheckBox("Automatic upload workers")
+        self.automatic_upload_workers_checkbox = QCheckBox("Automatic upload settings")
         self.automatic_upload_workers_checkbox.toggled.connect(self._update_worker_mode_state)
-        self.automatic_upload_worker_ceiling_input = QSpinBox()
-        self.automatic_upload_worker_ceiling_input.setRange(1, maximum_upload_workers_limit())
-        self.automatic_upload_worker_ceiling_input.setValue(
-            min(DEFAULT_AUTOMATIC_UPLOAD_WORKER_CEILING, maximum_upload_workers_limit())
-        )
+        self.memory_cap_input = QSpinBox()
+        self.memory_cap_input.setRange(MIN_MEMORY_CAP_MIB, MAX_MEMORY_CAP_MIB)
+        self.memory_cap_input.setValue(DEFAULT_MEMORY_CAP_MIB)
         self.auto_worker_status_label = QLabel()
         self.auto_worker_status_label.setWordWrap(True)
         self.auto_worker_status_label.hide()
-        self.automatic_write_chunks_checkbox = QCheckBox("Automatic write sizes")
-        self.automatic_write_chunks_checkbox.toggled.connect(self._update_worker_mode_state)
         self.single_write_chunk_input = QComboBox()
         self.parallel_write_chunk_input = QComboBox()
         for size in WRITE_CHUNK_SIZES_MIB:
@@ -1129,11 +1127,6 @@ class SettingsWindow(QWidget):
         self.parallel_write_chunk_input.setCurrentIndex(
             self.parallel_write_chunk_input.findData(DEFAULT_PARALLEL_WRITE_CHUNK_MIB)
         )
-        self._manual_write_chunk_sizes = (
-            DEFAULT_SINGLE_WRITE_CHUNK_MIB, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
-        )
-        self._effective_write_chunk_sizes: tuple[int, int] | None = None
-        self._showing_automatic_write_chunks = False
         self.chunk_status_label = QLabel()
         self.chunk_status_label.setWordWrap(True)
         self.chunk_status_label.hide()
@@ -1143,8 +1136,7 @@ class SettingsWindow(QWidget):
         retry_form_layout.addRow("Backoff multiplier", self.retry_backoff_multiplier_input)
         retry_form_layout.addRow(self.automatic_upload_workers_checkbox)
         retry_form_layout.addRow("Maximum upload workers", self.maximum_upload_workers_input)
-        retry_form_layout.addRow("Automatic ceiling", self.automatic_upload_worker_ceiling_input)
-        retry_form_layout.addRow(self.automatic_write_chunks_checkbox)
+        retry_form_layout.addRow("Memory cap (MiB)", self.memory_cap_input)
         retry_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
         retry_form_layout.addRow("Parallel write", self.parallel_write_chunk_input)
 
@@ -1363,19 +1355,20 @@ class SettingsWindow(QWidget):
     def get_maximum_upload_workers(self) -> int:
         return self.maximum_upload_workers_input.value()
 
-    def set_automatic_upload_workers(self, automatic: bool, ceiling: int) -> None:
-        self.automatic_upload_worker_ceiling_input.setRange(1, maximum_upload_workers_limit())
-        self.automatic_upload_worker_ceiling_input.setValue(ceiling)
+    def set_automatic_upload_workers(self, automatic: bool, memory_cap: int) -> None:
+        self.memory_cap_input.setValue(memory_cap)
         self.automatic_upload_workers_checkbox.setChecked(automatic)
         self._update_worker_mode_state()
 
     def get_automatic_upload_workers(self) -> bool:
         return self.automatic_upload_workers_checkbox.isChecked()
 
-    def get_automatic_upload_worker_ceiling(self) -> int:
-        return self.automatic_upload_worker_ceiling_input.value()
+    def get_memory_cap(self) -> int:
+        return self.memory_cap_input.value()
 
     def set_auto_worker_status(self, workers: int, throughput: float | None) -> None:
+        if self.automatic_upload_workers_checkbox.isChecked():
+            self.maximum_upload_workers_input.setValue(workers)
         message = f"Currently using {workers} upload worker{'s' if workers != 1 else ''}"
         if throughput is None:
             message += " · gathering transfer data"
@@ -1412,61 +1405,23 @@ class SettingsWindow(QWidget):
     def _update_worker_mode_state(self, *_args) -> None:
         automatic = self.automatic_upload_workers_checkbox.isChecked()
         self.maximum_upload_workers_input.setEnabled(not automatic)
-        self.automatic_upload_worker_ceiling_input.setEnabled(automatic)
+        self.memory_cap_input.setEnabled(automatic)
         self.auto_worker_status_label.setVisible(automatic)
-        automatic_chunks = self.automatic_write_chunks_checkbox.isChecked()
-        changed_mode = automatic_chunks != self._showing_automatic_write_chunks
-        if changed_mode and automatic_chunks:
-            self._manual_write_chunk_sizes = (
-                self.single_write_chunk_input.currentData(),
-                self.parallel_write_chunk_input.currentData(),
-            )
-        self._showing_automatic_write_chunks = automatic_chunks
-        if automatic_chunks:
-            sizes = self._effective_write_chunk_sizes or self._manual_write_chunk_sizes
-            self.single_write_chunk_input.setCurrentIndex(
-                self.single_write_chunk_input.findData(sizes[0])
-            )
-            self.parallel_write_chunk_input.setCurrentIndex(
-                self.parallel_write_chunk_input.findData(sizes[1])
-            )
-        elif changed_mode:
-            self.single_write_chunk_input.setCurrentIndex(
-                self.single_write_chunk_input.findData(self._manual_write_chunk_sizes[0])
-            )
-            self.parallel_write_chunk_input.setCurrentIndex(
-                self.parallel_write_chunk_input.findData(self._manual_write_chunk_sizes[1])
-            )
-        self.single_write_chunk_input.setEnabled(not automatic_chunks)
-        self.parallel_write_chunk_input.setEnabled(not automatic_chunks)
-        self.chunk_status_label.setVisible(automatic_chunks)
+        self.single_write_chunk_input.setEnabled(not automatic)
+        self.parallel_write_chunk_input.setEnabled(not automatic)
+        self.chunk_status_label.setVisible(automatic)
 
-    def set_write_chunk_settings(self, automatic: bool, single: int, parallel: int) -> None:
-        self._manual_write_chunk_sizes = (single, parallel)
+    def set_write_chunk_settings(self, single: int, parallel: int) -> None:
         self.single_write_chunk_input.setCurrentIndex(self.single_write_chunk_input.findData(single))
         self.parallel_write_chunk_input.setCurrentIndex(self.parallel_write_chunk_input.findData(parallel))
-        # A programmatic mode change must not capture the displayed sizes as Manual choices.
-        self._showing_automatic_write_chunks = automatic
-        self.automatic_write_chunks_checkbox.setChecked(automatic)
-        self._update_worker_mode_state()
 
-    def get_write_chunk_settings(self) -> tuple[bool, int, int]:
-        automatic = self.automatic_write_chunks_checkbox.isChecked()
-        single, parallel = (
-            self._manual_write_chunk_sizes if automatic else (
-                self.single_write_chunk_input.currentData(),
-                self.parallel_write_chunk_input.currentData(),
-            )
-        )
-        return (
-            automatic, single, parallel,
-        )
+    def get_write_chunk_settings(self) -> tuple[int, int]:
+        return self.single_write_chunk_input.currentData(), self.parallel_write_chunk_input.currentData()
 
     def set_chunk_status(
         self, single: int, parallel: int, *, worker_cap: int | None = None
     ) -> None:
-        self._effective_write_chunk_sizes = (single, parallel)
-        if self.automatic_write_chunks_checkbox.isChecked():
+        if self.automatic_upload_workers_checkbox.isChecked():
             self.single_write_chunk_input.setCurrentIndex(
                 self.single_write_chunk_input.findData(single)
             )

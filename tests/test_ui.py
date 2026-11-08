@@ -726,38 +726,40 @@ def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
 def test_automatic_worker_controls_show_effective_count_and_throughput(settings_window):
     assert not settings_window.get_automatic_upload_workers()
     assert settings_window.maximum_upload_workers_input.isEnabled()
-    assert not settings_window.automatic_upload_worker_ceiling_input.isEnabled()
+    assert not settings_window.memory_cap_input.isEnabled()
 
-    settings_window.set_automatic_upload_workers(True, 3)
+    settings_window.set_automatic_upload_workers(True, 512)
     settings_window.set_auto_worker_status(2, 3 * 1024 * 1024)
 
     assert settings_window.get_automatic_upload_workers()
-    assert settings_window.get_automatic_upload_worker_ceiling() == min(
-        3, config_module.maximum_upload_workers_limit()
-    )
+    assert settings_window.get_memory_cap() == 512
     assert not settings_window.maximum_upload_workers_input.isEnabled()
-    assert settings_window.automatic_upload_worker_ceiling_input.isEnabled()
+    assert settings_window.maximum_upload_workers_input.value() == 2
+    assert settings_window.memory_cap_input.isEnabled()
     assert "Currently using 2 upload workers" in settings_window.auto_worker_status_label.text()
     assert "3.0 MiB/s" in settings_window.auto_worker_status_label.text()
 
-    settings_window.set_automatic_upload_workers(False, 3)
+    settings_window.set_automatic_upload_workers(False, 512)
     assert settings_window.maximum_upload_workers_input.isEnabled()
+    assert settings_window.maximum_upload_workers_input.value() == 2
+    assert not settings_window.memory_cap_input.isEnabled()
     assert settings_window.auto_worker_status_label.isHidden()
 
 
-def test_write_chunk_controls_keep_separate_manual_values(settings_window):
-    assert settings_window.get_write_chunk_settings() == (False, 8, 4)
+def test_write_chunk_controls_keep_last_effective_values(settings_window):
+    assert settings_window.get_write_chunk_settings() == (8, 4)
     assert settings_window.single_write_chunk_input.isEnabled()
 
-    settings_window.set_write_chunk_settings(True, 4, 16)
+    settings_window.set_write_chunk_settings(4, 16)
+    settings_window.set_automatic_upload_workers(True, 256)
     settings_window.set_chunk_status(4, 8)
 
-    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
+    assert settings_window.get_write_chunk_settings() == (4, 8)
     assert not settings_window.parallel_write_chunk_input.isEnabled()
     assert "single 4 MiB · parallel 8 MiB" in settings_window.chunk_status_label.text()
 
-    settings_window.set_write_chunk_settings(False, 4, 16)
-    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+    settings_window.set_automatic_upload_workers(False, 256)
+    assert settings_window.get_write_chunk_settings() == (4, 8)
     assert settings_window.parallel_write_chunk_input.isEnabled()
     assert settings_window.chunk_status_label.isHidden()
 
@@ -765,56 +767,31 @@ def test_write_chunk_controls_keep_separate_manual_values(settings_window):
     assert "memory budget caps workers at 5" in settings_window.chunk_status_label.text()
 
 
-def test_automatic_write_selectors_show_effective_sizes_without_losing_manual_choices(
+def test_automatic_write_selectors_show_effective_sizes_and_freeze_on_manual(
     settings_window,
 ):
-    settings_window.single_write_chunk_input.setCurrentIndex(
-        settings_window.single_write_chunk_input.findData(4)
-    )
-    settings_window.parallel_write_chunk_input.setCurrentIndex(
-        settings_window.parallel_write_chunk_input.findData(16)
-    )
+    settings_window.set_write_chunk_settings(4, 16)
     settings_window.set_chunk_status(8, 4)
-    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
-    settings_window.automatic_upload_workers_checkbox.setChecked(True)
-    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+    assert settings_window.get_write_chunk_settings() == (4, 16)
 
-    settings_window.automatic_write_chunks_checkbox.setChecked(True)
+    settings_window.automatic_upload_workers_checkbox.setChecked(True)
     assert not settings_window.single_write_chunk_input.isEnabled()
+    settings_window.set_chunk_status(8, 4)
     assert (
         settings_window.single_write_chunk_input.currentData(),
         settings_window.parallel_write_chunk_input.currentData(),
     ) == (8, 4)
-    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
 
     settings_window.set_chunk_status(16, 8)
     assert (
         settings_window.single_write_chunk_input.currentData(),
         settings_window.parallel_write_chunk_input.currentData(),
     ) == (16, 8)
-    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
+    assert settings_window.get_write_chunk_settings() == (16, 8)
 
-    settings_window.automatic_write_chunks_checkbox.setChecked(False)
-    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+    settings_window.automatic_upload_workers_checkbox.setChecked(False)
+    assert settings_window.get_write_chunk_settings() == (16, 8)
     assert settings_window.single_write_chunk_input.isEnabled()
-    settings_window.automatic_write_chunks_checkbox.setChecked(True)
-    assert (
-        settings_window.single_write_chunk_input.currentData(),
-        settings_window.parallel_write_chunk_input.currentData(),
-    ) == (16, 8)
-
-
-def test_setting_saved_write_choices_does_not_replace_effective_automatic_sizes(
-    settings_window,
-):
-    settings_window.set_chunk_status(16, 8)
-    settings_window.set_write_chunk_settings(True, 4, 16)
-    assert settings_window.single_write_chunk_input.currentData() == 16
-    assert settings_window.parallel_write_chunk_input.currentData() == 8
-    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
-
-    settings_window.set_write_chunk_settings(False, 4, 16)
-    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
 
 
 # --- post-upload cleanup in the add-folder dialog -------------------------------

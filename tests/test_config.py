@@ -148,37 +148,46 @@ def test_upload_worker_limit_survives_restart_and_is_clamped_on_load(tmp_path, m
 def test_automatic_upload_worker_settings_survive_restart(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module.os, "cpu_count", lambda: 3)
     store = ConfigStore(path=tmp_path / "app_state.json")
-    assert store.load().automatic_upload_workers is False
+    assert store.load().automatic_upload_settings is False
 
-    store.save(AppConfig(automatic_upload_workers=True, automatic_upload_worker_ceiling=99))
+    store.save(AppConfig(automatic_upload_settings=True, memory_cap_mib=512))
 
-    assert store.load().automatic_upload_workers is True
-    assert store.load().automatic_upload_worker_ceiling == 3
+    assert store.load().automatic_upload_settings is True
+    assert store.load().memory_cap_mib == 512
     payload = json.loads(store.path.read_text(encoding="utf-8"))
-    assert payload["automatic_upload_worker_ceiling"] == 3
+    assert payload["memory_cap_mib"] == 512
+    assert "automatic_upload_worker_ceiling" not in payload
 
     store.path.write_text('{"automatic_upload_workers": "false"}', encoding="utf-8")
-    assert store.load().automatic_upload_workers is False
+    assert store.load().automatic_upload_settings is False
+    store.path.write_text('{"automatic_write_chunks": true}', encoding="utf-8")
+    assert store.load().automatic_upload_settings is True
+    store.path.write_text('{"automatic_upload_settings": false, "automatic_write_chunks": true}', encoding="utf-8")
+    assert store.load().automatic_upload_settings is False
+    store.path.write_text('{"memory_cap_mib": 1}', encoding="utf-8")
+    assert store.load().memory_cap_mib == 12
+    store.path.write_text('{"memory_cap_mib": "invalid"}', encoding="utf-8")
+    assert store.load().memory_cap_mib == 256
 
 
 def test_write_chunk_settings_are_persisted_and_bad_values_use_defaults(tmp_path):
     store = ConfigStore(path=tmp_path / "app_state.json")
     store.save(AppConfig(
-        automatic_write_chunks=True, single_write_chunk_size_mib=16,
+        automatic_upload_settings=True, single_write_chunk_size_mib=16,
         parallel_write_chunk_size_mib=8,
     ))
 
     loaded = store.load()
-    assert loaded.automatic_write_chunks is True
+    assert loaded.automatic_upload_settings is True
     assert loaded.single_write_chunk_size_mib == 16
     assert loaded.parallel_write_chunk_size_mib == 8
 
     store.path.write_text(
-        '{"automatic_write_chunks": "false", "single_write_chunk_size_mib": 99, '
+        '{"automatic_upload_settings": "false", "single_write_chunk_size_mib": 99, '
         '"parallel_write_chunk_size_mib": "invalid"}', encoding="utf-8",
     )
     loaded = store.load()
-    assert loaded.automatic_write_chunks is False
+    assert loaded.automatic_upload_settings is False
     assert loaded.single_write_chunk_size_mib == 8
     assert loaded.parallel_write_chunk_size_mib == 4
 

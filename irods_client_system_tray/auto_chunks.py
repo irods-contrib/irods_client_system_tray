@@ -6,11 +6,11 @@ from collections import deque
 from statistics import median
 
 from .auto_workers import TransferSample
+from .config import DEFAULT_MEMORY_CAP_MIB
 
 
 CHUNK_SIZES_MIB = (4, 8, 16)
 PARALLEL_TRANSFER_THREADS = 3
-PARALLEL_MEMORY_BUDGET_MIB = 256
 
 
 class AutomaticChunkSize:
@@ -22,9 +22,13 @@ class AutomaticChunkSize:
     PROBE_COOLDOWN_SECONDS = 30.0
     REJECT_COOLDOWN_SECONDS = 60.0
 
-    def __init__(self, initial: int, *, parallel: bool = False) -> None:
+    def __init__(
+        self, initial: int, *, parallel: bool = False,
+        memory_cap_mib: int = DEFAULT_MEMORY_CAP_MIB,
+    ) -> None:
         self.current = initial
         self.parallel = parallel
+        self.memory_cap_mib = memory_cap_mib
         self._samples: deque[TransferSample] = deque(maxlen=8)
         self._window_started_at: float | None = None
         self._reference: tuple[float, float] | None = None
@@ -51,7 +55,7 @@ class AutomaticChunkSize:
     def _allowed(self, size: int, workers: int) -> bool:
         return size in CHUNK_SIZES_MIB and (
             not self.parallel
-            or workers * PARALLEL_TRANSFER_THREADS * size <= PARALLEL_MEMORY_BUDGET_MIB
+            or workers * PARALLEL_TRANSFER_THREADS * size <= self.memory_cap_mib
         )
 
     def limit_for_workers(self, workers: int) -> int:
