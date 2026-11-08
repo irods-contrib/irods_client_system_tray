@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import runpy
 import sys
 import types
+
+import pytest
 
 from irods_client_system_tray import main
 
@@ -235,3 +238,103 @@ def test_run_in_background_skips_when_foreground_flag_is_used(monkeypatch):
     monkeypatch.setattr(main.subprocess, "Popen", popen)
 
     assert not main._run_in_background_if_needed(True, ["irods-client-system-tray"])
+
+
+def test_palette_uses_theme_tokens_for_active_and_disabled_text():
+    from PySide6.QtGui import QColor, QPalette
+
+    tokens = main.THEME_TOKENS["dark"]
+    palette = main._palette_from_tokens(tokens)
+
+    assert palette.color(QPalette.ColorRole.Window) == QColor(tokens["window_bg"])
+    assert palette.color(QPalette.ColorRole.Highlight) == QColor(tokens["accent"])
+    assert palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text) == QColor(
+        tokens["muted"]
+    )
+
+
+@pytest.mark.parametrize("scheme", ["dark", "light"])
+def test_apply_theme_sets_palette_and_stylesheet(monkeypatch, scheme):
+    color_scheme = getattr(main.Qt.ColorScheme, scheme.capitalize())
+    monkeypatch.setattr(
+        main, "QGuiApplication",
+        types.SimpleNamespace(styleHints=lambda: types.SimpleNamespace(colorScheme=lambda: color_scheme)),
+    )
+    monkeypatch.setattr(
+        main,
+        "_font_size_tokens_from_system_font",
+        lambda _app: {name: "12pt" for name in main.FONT_SIZE_RATIOS},
+    )
+    applied = {}
+    app = types.SimpleNamespace(
+        setPalette=lambda palette: applied.setdefault("palette", palette),
+        setStyleSheet=lambda stylesheet: applied.setdefault("stylesheet", stylesheet),
+    )
+
+    main._apply_theme(app)
+
+    assert main.THEME_TOKENS[scheme]["window_bg"] in applied["stylesheet"]
+    assert applied["palette"].color(main.QPalette.ColorRole.Window).name() == (
+        main.THEME_TOKENS[scheme]["window_bg"]
+    )
+
+
+def test_run_in_background_uses_windows_process_flags(monkeypatch):
+    launched = []
+    monkeypatch.setattr(main.sys, "platform", "win32")
+    monkeypatch.setattr(main.subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, raising=False)
+    monkeypatch.setattr(main.subprocess, "DETACHED_PROCESS", 0x8, raising=False)
+    monkeypatch.setattr(main.subprocess, "Popen", lambda command, **kwargs: launched.append(kwargs))
+    monkeypatch.delenv(main.BACKGROUND_ENV_VAR, raising=False)
+    monkeypatch.delenv(main.FOREGROUND_ENV_VAR, raising=False)
+
+    assert main._run_in_background_if_needed(False, ["app"])
+    assert launched[0]["creationflags"] == 0x208
+    assert "start_new_session" not in launched[0]
+
+
+def test_main_returns_without_creating_qt_when_launching_detached(monkeypatch):
+    monkeypatch.setattr(main.sys, "argv", ["app"])
+    monkeypatch.setattr(main, "_run_in_background_if_needed", lambda *_args: True)
+    monkeypatch.setattr(main, "QApplication", lambda *_args: pytest.fail("Qt should not start"))
+
+    assert main.main() == 0
+
+
+def test_main_explains_when_no_system_tray_is_available(monkeypatch):
+    class App:
+        def __init__(self, _args):
+            pass
+
+        def setApplicationName(self, _name):
+            pass
+
+        def setOrganizationName(self, _name):
+            pass
+
+        def setStyle(self, _name):
+            pass
+
+    monkeypatch.setattr(main.sys, "argv", ["app", "--foreground"])
+    monkeypatch.setattr(main, "QApplication", App)
+    monkeypatch.setattr(main, "_hide_from_macos_dock", lambda: None)
+    monkeypatch.setattr(main, "_apply_theme", lambda _app: None)
+    monkeypatch.setattr(
+        main, "QGuiApplication",
+        types.SimpleNamespace(styleHints=lambda: types.SimpleNamespace(
+            colorSchemeChanged=types.SimpleNamespace(connect=lambda _callback: None)
+        )),
+    )
+    monkeypatch.setattr(main, "QSystemTrayIcon", types.SimpleNamespace(isSystemTrayAvailable=lambda: False))
+
+    with pytest.raises(SystemExit, match="System tray is not available"):
+        main.main()
+
+
+def test_module_entrypoint_exits_with_main_result(monkeypatch):
+    monkeypatch.setattr(main, "main", lambda: 23)
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module("irods_client_system_tray.__main__", run_name="__main__")
+
+    assert excinfo.value.code == 23

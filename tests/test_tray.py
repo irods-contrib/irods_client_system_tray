@@ -880,6 +880,80 @@ def test_failed_upload_is_held_for_retry_and_reports_the_error(
     assert controller.window.status_label.text().startswith("Retrying report.csv")
 
 
+def test_retry_timer_dispatches_a_second_attempt(controller, queued_uploads, watched_file):
+    controller._queue_ingestion(str(watched_file))
+    controller._handle_upload_failed(str(watched_file), "connection reset")
+
+    controller._retry_upload_job(str(watched_file))
+
+    assert len(queued_uploads) == 2
+    assert controller._queued_uploads[str(watched_file)].attempt_number == 2
+    assert controller._queued_uploads[str(watched_file)].status == "dispatched"
+
+
+@pytest.mark.parametrize("condition", ["paused", "signed_out", "unwatched", "no_target"])
+def test_retry_does_not_upload_when_prerequisites_change(
+    controller, queued_uploads, watched_file, condition
+):
+    controller._queue_ingestion(str(watched_file))
+    controller._handle_upload_failed(str(watched_file), "connection reset")
+
+    if condition == "paused":
+        controller.config.is_monitoring_active = False
+    elif condition == "signed_out":
+        controller._is_authenticated = False
+    elif condition == "unwatched":
+        controller.config.monitored_directories.clear()
+    else:
+        controller.config.monitored_directories[0].target_collection = ""
+
+    controller._retry_upload_job(str(watched_file))
+
+    assert len(queued_uploads) == 1
+    assert str(watched_file) not in controller._queued_uploads
+    if condition != "signed_out":
+        assert str(watched_file) in controller._failed_uploads
+
+
+def test_pausing_monitoring_moves_waiting_retries_to_failed_list(
+    controller, queued_uploads, watched_file, monkeypatch
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    controller._queue_ingestion(str(watched_file))
+    controller._handle_upload_failed(str(watched_file), "connection reset")
+
+    controller.set_monitoring_active(False)
+
+    assert str(watched_file) not in controller._queued_uploads
+    assert controller._failed_uploads[str(watched_file)].status == "failed"
+    assert controller._failed_uploads[str(watched_file)].retry_timer is None
+
+
+def test_manual_retry_resets_a_failed_upload(controller, queued_uploads, watched_file):
+    controller.config.retry = RetryConfig(attempts=0)
+    controller._queue_ingestion(str(watched_file))
+    controller._handle_upload_failed(str(watched_file), "connection reset")
+
+    controller.retry_failed_upload(str(watched_file))
+
+    assert len(queued_uploads) == 2
+    assert str(watched_file) not in controller._failed_uploads
+    assert controller._queued_uploads[str(watched_file)].attempt_number == 1
+
+
+def test_deleted_file_event_removes_failed_upload(controller, queued_uploads, watched_file):
+    controller.config.retry = RetryConfig(attempts=0)
+    controller._queue_ingestion(str(watched_file))
+    controller._handle_upload_failed(str(watched_file), "connection reset")
+
+    controller._handle_file_event("deleted", str(watched_file), False)
+
+    assert str(watched_file) not in controller._failed_uploads
+    assert any(
+        "failed upload removed" in entry for entry in controller.window.activity_log.read_recent()
+    )
+
+
 # --- sign out -------------------------------------------------------------------
 
 
