@@ -17,7 +17,11 @@ import json
 import pytest
 
 from irods_client_system_tray import config
-from irods_client_system_tray.config import IRODSEnvironment, MonitoredDirectory
+from irods_client_system_tray.config import (
+    IRODSEnvironment,
+    MonitoredDirectory,
+    RegexFilterConfig,
+)
 
 pytestmark = pytest.mark.usefixtures("qapp")
 
@@ -138,6 +142,142 @@ def test_sibling_with_similar_name_is_not_an_overlap(controller, watched, tmp_pa
 
     assert len(controller.config.monitored_directories) == 2
     assert controller.config.monitored_directories[1].source_directory == str(sibling)
+
+
+@pytest.mark.parametrize(
+    ("filter_mode", "expected_files"),
+    [
+        ("allow", {"report.csv", "nested/deep.csv"}),
+        ("deny", {"notes.txt"}),
+    ],
+)
+def test_adding_folder_scans_existing_files_recursively_through_filters(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path, filter_mode, expected_files
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    (folder / "nested").mkdir(parents=True)
+    for relative_path in ("report.csv", "nested/deep.csv", "notes.txt"):
+        (folder / relative_path).write_text("data", encoding="utf-8")
+    (tmp_path / "unrelated.csv").write_text("outside", encoding="utf-8")
+
+    controller.add_directory(
+        MonitoredDirectory(
+            str(folder),
+            "home/alice",
+            regex_filter=RegexFilterConfig(mode=filter_mode, patterns=[r"\.csv$"]),
+        )
+    )
+    for _ in range(20):
+        qapp.processEvents()
+        if not controller._initial_scan_iterators:
+            break
+
+    assert not controller._initial_scan_iterators
+    assert {str((folder / name).resolve()) for name in expected_files} == {
+        upload[0] for upload in queued_uploads
+    }
+    assert all(upload[1:4] == (str(folder), "/tempZone/home/alice", "delete") for upload in queued_uploads)
+
+    queued_uploads.clear()
+    controller._sync_from_config()
+    qapp.processEvents()
+    assert queued_uploads == []
+
+
+def test_initial_scan_waits_until_monitoring_is_enabled(controller, qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    existing = folder / "already-here.txt"
+    existing.write_text("data", encoding="utf-8")
+    sent = []
+    controller.queue_upload.connect(lambda *args: sent.append(args))
+
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice"))
+    qapp.processEvents()
+    assert sent == []
+
+    controller.set_monitoring_active(True)
+    qapp.processEvents()
+    assert [upload[0] for upload in sent] == [str(existing)]
+
+
+def test_scan_does_not_queue_a_file_already_seen_by_watchdog(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    existing = folder / "report.csv"
+    existing.write_text("data", encoding="utf-8")
+
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice"))
+    controller._queue_ingestion(str(existing))
+    qapp.processEvents()
+
+    assert [upload[0] for upload in queued_uploads] == [str(existing)]
+
+
+def test_initial_scan_continues_across_batches(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    for index in range(105):
+        (folder / f"{index}.txt").write_text("data", encoding="utf-8")
+
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice"))
+    for _ in range(20):
+        qapp.processEvents()
+        if not controller._initial_scan_iterators:
+            break
+
+    assert not controller._initial_scan_iterators
+    assert len(queued_uploads) == 105
+
+
+def test_pausing_an_initial_scan_preserves_remaining_files(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    for name in ("one.txt", "two.txt"):
+        (folder / name).write_text("data", encoding="utf-8")
+    queue_file = controller._queue_ingestion
+
+    def pause_after_first_file(path):
+        queue_file(path)
+        if len(queued_uploads) == 1:
+            controller.set_monitoring_active(False)
+
+    monkeypatch.setattr(controller, "_queue_ingestion", pause_after_first_file)
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice"))
+    qapp.processEvents()
+
+    assert len(queued_uploads) == 1
+    controller.set_monitoring_active(True)
+    qapp.processEvents()
+    assert {upload[0] for upload in queued_uploads} == {
+        str(folder / "one.txt"), str(folder / "two.txt")
+    }
+
+
+def test_removing_a_folder_cancels_its_pending_scan(
+    controller, queued_uploads, qapp, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(controller.monitor, "sync", lambda *_args: None)
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    (folder / "report.csv").write_text("data", encoding="utf-8")
+
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice"))
+    controller.remove_directory(str(folder))
+    qapp.processEvents()
+
+    assert queued_uploads == []
 
 
 def test_removed_folder_is_dropped_from_the_saved_file(controller, watched, tmp_path):

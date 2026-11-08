@@ -63,6 +63,10 @@ The application stores user settings outside the installed package:
 After upload, files can be sent to trash, deleted, or moved outside monitored
 folders. Saved folders using the old "recycle" setting are migrated to "trash".
 
+Adding a monitored folder queues its existing files, including files in subfolders,
+for upload according to its regex filter. If monitoring is paused, the scan waits
+until monitoring is resumed during the same app session.
+
 ## Testing
 
 Run the tests:

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib.resources import files
+import os
 import re
 from pathlib import Path
 from threading import Thread
+from typing import Iterator
 
 from PySide6.QtCore import QByteArray, QObject, QRectF, Qt, Signal, QThread, QTimer
 from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
@@ -81,6 +83,9 @@ class TrayController(QObject):
         self.window = SettingsWindow()
         self._queued_uploads: dict[str, UploadJob] = {}
         self._failed_uploads: dict[str, UploadJob] = {}
+        self._pending_initial_scans: set[str] = set()
+        self._initial_scan_iterators: dict[str, Iterator[str]] = {}
+        self._scheduled_initial_scans: set[str] = set()
         self._is_shutting_down = False
         self._login_dialog: LoginDialog | None = None
         self._show_window_after_login = False
@@ -265,6 +270,8 @@ class TrayController(QObject):
         )
         self._persist_and_sync()
         self.window.set_status_message(f"Added {normalized_source}")
+        self._pending_initial_scans.add(normalized_source)
+        self._resume_initial_scans()
 
     def remove_directory(self, path: str) -> None:
         """Remove a monitored directory, then persist and resync background watches."""
@@ -274,6 +281,8 @@ class TrayController(QObject):
             for directory in self.config.monitored_directories
             if directory.source_directory != path
         ]
+        self._pending_initial_scans.discard(path)
+        self._initial_scan_iterators.pop(path, None)
         self._persist_and_sync()
         self.window.set_status_message(f"Removed {path}")
 
@@ -298,6 +307,9 @@ class TrayController(QObject):
             return
 
         self._is_shutting_down = True
+        self._pending_initial_scans.clear()
+        self._initial_scan_iterators.clear()
+        self._scheduled_initial_scans.clear()
         self.config_store.save(self.config)
         self.monitor.shutdown()
         self._clear_upload_jobs()
@@ -466,6 +478,7 @@ class TrayController(QObject):
                 )
             else:
                 self.window.set_status_message("")
+        self._resume_initial_scans()
 
     def _persist_and_sync(self) -> None:
         """Save the latest state and immediately refresh monitoring and UI widgets."""
@@ -475,6 +488,74 @@ class TrayController(QObject):
         )
         self.config_store.save(self.config)
         self._sync_from_config()
+
+    def _resume_initial_scans(self) -> None:
+        """Start or resume one scan for each newly added folder when monitoring is on."""
+
+        if self._is_shutting_down or not self._is_authenticated or not self.config.is_monitoring_active:
+            return
+
+        configured_roots = {directory.source_directory for directory in self.config.monitored_directories}
+        for root in tuple(self._pending_initial_scans):
+            if root not in configured_roots:
+                self._pending_initial_scans.discard(root)
+                continue
+            if not Path(root).is_dir():
+                continue
+            self._pending_initial_scans.remove(root)
+            self._initial_scan_iterators[root] = self._iter_existing_files(root)
+
+        for root in tuple(self._initial_scan_iterators):
+            self._schedule_initial_scan(root)
+
+    def _iter_existing_files(self, root: str) -> Iterator[str]:
+        """Yield regular files recursively without following directory symlinks."""
+
+        def report_error(error: OSError) -> None:
+            self._handle_monitor_error(f"Failed to scan {error.filename}: {error}")
+
+        for current_root, _directories, filenames in os.walk(root, onerror=report_error):
+            for filename in filenames:
+                path = Path(current_root) / filename
+                if path.is_file():
+                    yield str(path)
+
+    def _schedule_initial_scan(self, root: str) -> None:
+        if root in self._scheduled_initial_scans:
+            return
+        self._scheduled_initial_scans.add(root)
+        QTimer.singleShot(0, lambda: self._scan_initial_batch(root))
+
+    def _scan_initial_batch(self, root: str) -> None:
+        """Queue a bounded batch, allowing the GUI to process events between batches."""
+
+        self._scheduled_initial_scans.discard(root)
+        iterator = self._initial_scan_iterators.get(root)
+        if iterator is None:
+            return
+        if self._is_shutting_down or not any(
+            directory.source_directory == root for directory in self.config.monitored_directories
+        ):
+            self._initial_scan_iterators.pop(root, None)
+            return
+        if not self._is_authenticated or not self.config.is_monitoring_active:
+            return
+
+        for _ in range(100):
+            try:
+                path = next(iterator)
+            except StopIteration:
+                self._initial_scan_iterators.pop(root, None)
+                return
+            self._queue_ingestion(path)
+            if (
+                self._is_shutting_down
+                or not self._is_authenticated
+                or not self.config.is_monitoring_active
+                or self._initial_scan_iterators.get(root) is not iterator
+            ):
+                return
+        self._schedule_initial_scan(root)
 
     def _apply_locked_state(self) -> None:
         """Keep the tray visible while preventing access to the main app before sign-in."""

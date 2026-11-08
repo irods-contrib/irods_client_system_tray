@@ -14,6 +14,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 ## [0.2.0] - 2026-11-08
 
 - Monitor all watched folders recursively and prevent overlapping watches.
+- Queue existing files when a folder is first added for monitoring.
 - Rename the post-upload recycle mode to trash, alongside move and delete.
 - Reject move-after-upload settings without a destination.
 - Add launcher help and foreground options, and hide the macOS launcher from the Dock.
