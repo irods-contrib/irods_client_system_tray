@@ -23,7 +23,7 @@ class IRODSUploadWorker(QObject):
     """Perform a single iRODS upload attempt on a worker thread so the GUI stays responsive."""
 
     upload_started = Signal(str, str)
-    upload_progress = Signal(str, str, int, int)
+    upload_progress = Signal(str, str, object, object)
     upload_finished = Signal(str, str)
     upload_failed = Signal(str, str)
     upload_cancelled = Signal(str, str)
@@ -236,9 +236,30 @@ class IRODSUploadWorker(QObject):
             self.upload_debug.emit(
                 f"upload debug -> stage=before put local={local_file} logical={logical_path}"
             )
-            session.data_objects.put(str(local_file), logical_path)
+            bytes_sent = 0
+            last_percent = 0
+            progress_lock = Lock()
+
+            def update_progress(chunk_size: int) -> None:
+                nonlocal bytes_sent, last_percent
+
+                with progress_lock:
+                    bytes_sent = min(total_bytes, bytes_sent + chunk_size)
+                    percent = bytes_sent * 100 // total_bytes if total_bytes else 100
+                    if percent > last_percent:
+                        last_percent = percent
+                        self.upload_progress.emit(
+                            str(local_file), logical_path, bytes_sent, total_bytes
+                        )
+
+            session.data_objects.put(
+                str(local_file), logical_path, updatables=update_progress
+            )
             self.upload_debug.emit("upload debug -> stage=put completed")
-            self.upload_progress.emit(str(local_file), logical_path, total_bytes, total_bytes)
+            if bytes_sent < total_bytes or total_bytes == 0:
+                self.upload_progress.emit(
+                    str(local_file), logical_path, total_bytes, total_bytes
+                )
 
     def _ensure_collection_exists(self, session, target_collection_root: str, logical_path: str) -> None:
         """Verify the target exists and create only deeper subcollections as needed."""
