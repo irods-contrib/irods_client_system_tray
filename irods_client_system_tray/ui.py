@@ -164,16 +164,6 @@ class LoginDialog(QDialog):
         self.setModal(True)
         self.resize(self._default_dialog_width, self._default_dialog_height)
 
-        title_label = QLabel("Sign in to iRODS")
-        title_label.setStyleSheet("font-size: 22px; font-weight: 600;")
-
-        subtitle_label = QLabel(
-            "Enter your iRODS connection details and credentials before accessing "
-            "the ingestion monitor."
-        )
-        subtitle_label.setWordWrap(True)
-        subtitle_label.setStyleSheet("color: #667085;")
-
         form_layout = QFormLayout()
         form_layout.setSpacing(10)
         form_layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -201,9 +191,10 @@ class LoginDialog(QDialog):
         form_layout.addRow("Username", self.user_name_input)
         form_layout.addRow("Password", self.password_input)
 
-        self.status_label = QLabel("Enter your iRODS connection details to continue.")
+        self.status_label = QLabel()
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("color: #344054;")
+        self.status_label.hide()
 
         self.error_details_link = QLabel(
             '<a href="toggle" style="color: #667085; text-decoration: underline;">Show details</a>'
@@ -235,8 +226,6 @@ class LoginDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
-        layout.addWidget(title_label)
-        layout.addWidget(subtitle_label)
         layout.addLayout(form_layout)
         layout.addWidget(self.status_label)
         layout.addWidget(self.error_details_link)
@@ -426,6 +415,7 @@ class LoginDialog(QDialog):
         color = "#b42318" if is_error else "#344054"
         self.status_label.setText(message)
         self.status_label.setStyleSheet(f"color: {color};")
+        self.status_label.setVisible(bool(message))
 
     def reject(self) -> None:
         """Keep the dialog open while a background sign-in attempt is still running."""

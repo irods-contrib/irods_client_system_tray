@@ -97,7 +97,7 @@ class TrayController(QObject):
         self.sign_in_action.triggered.connect(
             lambda _checked=False: self.prompt_login(show_window_on_success=True)
         )
-        self.sign_out_action = QAction("Sign Out", self)
+        self.sign_out_action = QAction("Logout", self)
         self.sign_out_action.triggered.connect(lambda _checked=False: self.sign_out())
         self.monitor_toggle_action = QAction("Toggle Monitoring", self)
         self.monitor_toggle_action.setCheckable(True)
