@@ -7,7 +7,7 @@ import re
 import socket
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -1010,6 +1010,7 @@ class SettingsWindow(QWidget):
         self.resize(640, 460)
         self._irods_zone_for_new_folders = "tempZone"
         self._monitored_directories: list[MonitoredDirectory] = []
+        self._scroll_activity_on_first_show = True
 
         self.title_label = QLabel("iRODS Ingest")
         self.title_label.setObjectName("settingsTitleLabel")
@@ -1286,6 +1287,14 @@ class SettingsWindow(QWidget):
         self.activity_list.clear()
         for entry in self.activity_log.read_recent():
             self.activity_list.addItem(entry)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        """Scroll to the newest activity after the window first appears."""
+
+        super().showEvent(event)
+        if self._scroll_activity_on_first_show:
+            self._scroll_activity_on_first_show = False
+            QTimer.singleShot(0, self.activity_list.scrollToBottom)
 
     def closeEvent(self, event) -> None:  # noqa: N802
         """Hide the window instead of quitting so tray monitoring keeps running."""
