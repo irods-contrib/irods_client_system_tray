@@ -726,6 +726,46 @@ def test_manual_write_sizes_apply_to_single_and_parallel_jobs(
     }
 
 
+def test_automatic_write_sizes_show_live_values_without_saving_them_as_manual(controller):
+    window = controller.window
+    window.single_write_chunk_input.setCurrentIndex(
+        window.single_write_chunk_input.findData(4)
+    )
+    window.parallel_write_chunk_input.setCurrentIndex(
+        window.parallel_write_chunk_input.findData(16)
+    )
+    window.automatic_write_chunks_checkbox.setChecked(True)
+    window.save_settings_button.click()
+
+    assert window.get_write_chunk_settings() == (True, 4, 16)
+    assert (
+        window.single_write_chunk_input.currentData(),
+        window.parallel_write_chunk_input.currentData(),
+    ) == (4, 16)
+
+    controller._chunk_tuners[False].current = 8
+    controller._chunk_tuners[True].current = 8
+    controller._single_chunk_mib = 8
+    controller._configure_parallel_chunk_size(8)
+    controller._show_chunk_status()
+    assert (
+        window.single_write_chunk_input.currentData(),
+        window.parallel_write_chunk_input.currentData(),
+    ) == (8, 8)
+    window.save_settings_button.click()
+    saved = controller.config_store.load()
+    assert (saved.single_write_chunk_size_mib, saved.parallel_write_chunk_size_mib) == (4, 16)
+    assert (
+        window.single_write_chunk_input.currentData(),
+        window.parallel_write_chunk_input.currentData(),
+    ) == (8, 8)
+
+    window.automatic_write_chunks_checkbox.setChecked(False)
+    assert window.get_write_chunk_settings() == (False, 4, 16)
+    window.save_settings_button.click()
+    assert (controller._single_chunk_mib, controller._parallel_chunk_mib) == (4, 16)
+
+
 def test_single_chunk_trial_changes_the_next_dispatched_job(
     controller, queued_uploads, tmp_path
 ):

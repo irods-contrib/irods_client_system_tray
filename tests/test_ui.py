@@ -765,6 +765,58 @@ def test_write_chunk_controls_keep_separate_manual_values(settings_window):
     assert "memory budget caps workers at 5" in settings_window.chunk_status_label.text()
 
 
+def test_automatic_write_selectors_show_effective_sizes_without_losing_manual_choices(
+    settings_window,
+):
+    settings_window.single_write_chunk_input.setCurrentIndex(
+        settings_window.single_write_chunk_input.findData(4)
+    )
+    settings_window.parallel_write_chunk_input.setCurrentIndex(
+        settings_window.parallel_write_chunk_input.findData(16)
+    )
+    settings_window.set_chunk_status(8, 4)
+    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+    settings_window.automatic_upload_workers_checkbox.setChecked(True)
+    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+
+    settings_window.automatic_write_chunks_checkbox.setChecked(True)
+    assert not settings_window.single_write_chunk_input.isEnabled()
+    assert (
+        settings_window.single_write_chunk_input.currentData(),
+        settings_window.parallel_write_chunk_input.currentData(),
+    ) == (8, 4)
+    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
+
+    settings_window.set_chunk_status(16, 8)
+    assert (
+        settings_window.single_write_chunk_input.currentData(),
+        settings_window.parallel_write_chunk_input.currentData(),
+    ) == (16, 8)
+    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
+
+    settings_window.automatic_write_chunks_checkbox.setChecked(False)
+    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+    assert settings_window.single_write_chunk_input.isEnabled()
+    settings_window.automatic_write_chunks_checkbox.setChecked(True)
+    assert (
+        settings_window.single_write_chunk_input.currentData(),
+        settings_window.parallel_write_chunk_input.currentData(),
+    ) == (16, 8)
+
+
+def test_setting_saved_write_choices_does_not_replace_effective_automatic_sizes(
+    settings_window,
+):
+    settings_window.set_chunk_status(16, 8)
+    settings_window.set_write_chunk_settings(True, 4, 16)
+    assert settings_window.single_write_chunk_input.currentData() == 16
+    assert settings_window.parallel_write_chunk_input.currentData() == 8
+    assert settings_window.get_write_chunk_settings() == (True, 4, 16)
+
+    settings_window.set_write_chunk_settings(False, 4, 16)
+    assert settings_window.get_write_chunk_settings() == (False, 4, 16)
+
+
 # --- post-upload cleanup in the add-folder dialog -------------------------------
 
 
