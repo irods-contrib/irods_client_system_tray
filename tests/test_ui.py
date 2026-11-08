@@ -13,9 +13,10 @@ import threading
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSpinBox
 
 from irods_client_system_tray.activity_log import ActivityLog
+import irods_client_system_tray.config as config_module
 from irods_client_system_tray.config import (
     DEFAULT_POST_UPLOAD_ACTION,
     IRODSEnvironment,
@@ -423,18 +424,38 @@ def test_recent_activity_scrolls_to_bottom_after_first_show(activity_log, qapp):
         window.hide()
 
 
-def test_settings_tab_only_contains_retry_controls(settings_window):
+def test_settings_tab_contains_upload_controls(settings_window):
     settings_tab = settings_window.tabs.widget(1)
 
     assert settings_tab.findChild(QFrame, "retryCard") is not None
     assert settings_tab.findChild(QFrame, "irodsCard") is None
     assert not hasattr(settings_window, "irods_password_input")
-    assert settings_window.save_retry_settings_button.text() == "Save Retry Settings"
+    assert settings_tab.findChild(QSpinBox, "maximumUploadWorkers") is (
+        settings_window.maximum_upload_workers_input
+    )
+    assert settings_window.save_settings_button.text() == "Save Settings"
 
     requested = []
-    settings_window.save_retry_settings_requested.connect(lambda: requested.append(True))
-    settings_window.save_retry_settings_button.click()
+    settings_window.save_settings_requested.connect(lambda: requested.append(True))
+    settings_window.save_settings_button.click()
     assert requested == [True]
+
+
+def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
+    monkeypatch, activity_log
+):
+    monkeypatch.setattr(config_module.os, "cpu_count", lambda: 4)
+    window = SettingsWindow(activity_log)
+
+    assert window.get_maximum_upload_workers() == 2
+    assert window.maximum_upload_workers_input.maximum() == 4
+    window.set_maximum_upload_workers(99)
+    assert window.get_maximum_upload_workers() == 4
+
+    monkeypatch.setattr(config_module.os, "cpu_count", lambda: 1)
+    window.set_maximum_upload_workers(2)
+    assert window.get_maximum_upload_workers() == 1
+    assert window.maximum_upload_workers_input.maximum() == 1
 
 
 # --- post-upload cleanup in the add-folder dialog -------------------------------

@@ -69,6 +69,10 @@ until monitoring resumes.
 At startup, saved monitored folders are also scanned once after login so files
 added while the app was closed are picked up.
 
+The Settings tab controls retry behavior and the maximum number of files uploaded
+at once. Upload workers default to two, capped at the machine's logical CPU count.
+This limit is separate from iRODS's parallel threads for a single large file.
+
 ## Testing
 
 Run the tests:

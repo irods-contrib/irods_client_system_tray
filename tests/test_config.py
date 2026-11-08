@@ -16,6 +16,7 @@ from irods_client_system_tray.config import (
     MonitoredDirectory,
     normalize_irods_collection,
     normalize_irods_zone_name,
+    normalize_maximum_upload_workers,
     normalize_monitored_directories,
     normalize_post_upload_action,
     normalize_target_collection_for_zone,
@@ -111,6 +112,37 @@ def test_settings_survive_an_app_restart(tmp_path):
 
     assert loaded.is_monitoring_active is False
     assert loaded.monitored_directories[0].source_directory == source
+
+
+@pytest.mark.parametrize(
+    ("cpus", "value", "expected"),
+    [
+        (8, None, 2),
+        (8, "3", 3),
+        (8, "invalid", 2),
+        (8, 0, 1),
+        (8, 99, 8),
+        (1, None, 1),
+        (None, 2, 1),
+    ],
+)
+def test_upload_worker_limit_is_bounded_by_local_cpus(monkeypatch, cpus, value, expected):
+    monkeypatch.setattr(config_module.os, "cpu_count", lambda: cpus)
+
+    assert normalize_maximum_upload_workers(value) == expected
+
+
+def test_upload_worker_limit_survives_restart_and_is_clamped_on_load(tmp_path, monkeypatch):
+    monkeypatch.setattr(config_module.os, "cpu_count", lambda: 4)
+    store = ConfigStore(path=tmp_path / "app_state.json")
+    assert store.load().maximum_upload_workers == 2
+
+    store.save(AppConfig(maximum_upload_workers=3))
+    assert store.load().maximum_upload_workers == 3
+    assert json.loads(store.path.read_text(encoding="utf-8"))["maximum_upload_workers"] == 3
+
+    store.path.write_text('{"maximum_upload_workers": 99}', encoding="utf-8")
+    assert store.load().maximum_upload_workers == 4
 
 
 def test_corrupt_settings_file_falls_back_to_defaults(tmp_path):
