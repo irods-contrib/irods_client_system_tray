@@ -1029,6 +1029,9 @@ class SettingsWindow(QWidget):
         self.upload_summary_label = QLabel()
         self.upload_summary_label.setObjectName("uploadSummaryLabel")
         self.upload_summary_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.upload_queue_label = QLabel()
+        self.upload_queue_label.setObjectName("uploadQueueLabel")
+        self.upload_queue_label.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.upload_throughput_label = QLabel()
         self.upload_throughput_label.setObjectName("uploadThroughputLabel")
         self.upload_throughput_label.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -1203,6 +1206,7 @@ class SettingsWindow(QWidget):
         session_layout.addWidget(self.session_summary_label)
         session_layout.addWidget(self.session_host_label)
         session_layout.addWidget(self.upload_summary_label)
+        session_layout.addWidget(self.upload_queue_label)
         session_layout.addWidget(self.upload_throughput_label)
         header_layout.addLayout(session_layout)
         layout.addLayout(header_layout)
@@ -1335,11 +1339,10 @@ class SettingsWindow(QWidget):
     ) -> None:
         """Show live queue capacity and recent completed-upload throughput."""
 
-        self.upload_summary_label.setText(
-            f"Workers: {workers} ({active} active) · Queued: {queued}"
-        )
-        rate = "gathering data" if throughput is None else f"{throughput / (1024 * 1024):.1f} MiB/s"
-        self.upload_throughput_label.setText(f"Recent throughput: {rate}")
+        self.upload_summary_label.setText(f"Active Workers: {active}/{workers}")
+        self.upload_queue_label.setText(f"Queue: {queued}")
+        rate = "--" if throughput is None else f"{throughput / (1024 * 1024):.1f} MiB/s"
+        self.upload_throughput_label.setText(f"Throughput: {rate}")
 
     def _update_worker_mode_state(self, *_args) -> None:
         automatic = self.automatic_upload_workers_checkbox.isChecked()

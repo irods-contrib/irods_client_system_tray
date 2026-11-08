@@ -504,10 +504,9 @@ def test_header_counts_pending_and_active_uploads(controller, queued_uploads, tm
         path.write_text("data", encoding="utf-8")
         controller._queue_ingestion(str(path))
 
-    assert controller.window.upload_summary_label.text() == (
-        f"Workers: {controller.config.maximum_upload_workers} "
-        f"({controller.config.maximum_upload_workers} active) · Queued: 1"
-    )
+    limit = controller.config.maximum_upload_workers
+    assert controller.window.upload_summary_label.text() == f"Active Workers: {limit}/{limit}"
+    assert controller.window.upload_queue_label.text() == "Queue: 1"
 
 
 def test_header_uses_aggregate_throughput_of_overlapping_uploads(controller):
@@ -524,7 +523,7 @@ def test_header_uses_aggregate_throughput_of_overlapping_uploads(controller):
     controller._record_completed_transfer(second, 12.0)
     controller._update_upload_summary()
 
-    assert controller.window.upload_throughput_label.text() == "Recent throughput: 2.0 MiB/s"
+    assert controller.window.upload_throughput_label.text() == "Throughput: 2.0 MiB/s"
 
 
 def test_automatic_mode_changes_active_capacity_when_backlogged(
@@ -570,7 +569,7 @@ def test_automatic_mode_changes_active_capacity_when_backlogged(
     assert controller._effective_upload_workers == 3
     assert len(controller._active_uploads) == 3
     assert len(queued_uploads) == 4
-    assert "Workers: 3 (3 active)" in controller.window.upload_summary_label.text()
+    assert controller.window.upload_summary_label.text() == "Active Workers: 3/3"
 
 
 def test_manual_mode_restores_the_saved_manual_worker_count(controller):
