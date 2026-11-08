@@ -272,8 +272,8 @@ class IRODSUploadWorker(QObject):
 
         post_upload_action = normalize_post_upload_action(post_upload_action)
 
-        if post_upload_action == "recycle":
-            self.upload_debug.emit(f"upload debug -> stage=post-upload recycle local={local_file}")
+        if post_upload_action == "trash":
+            self.upload_debug.emit(f"upload debug -> stage=post-upload trash local={local_file}")
             self._send_to_trash(local_file)
             return
 
@@ -304,13 +304,13 @@ class IRODSUploadWorker(QObject):
             return Path(local_file.name)
 
     def _send_to_trash(self, local_file: Path) -> None:
-        """Use the platform trash for the recycle post-upload action."""
+        """Use the platform trash for the trash post-upload action."""
 
         try:
             from send2trash import send2trash
         except ImportError as exc:  # pragma: no cover - environment dependent
             raise RuntimeError(
-                "send2trash is not installed. Add it to the environment to enable recycle-after-upload."
+                "send2trash is not installed. Add it to the environment to enable trash-after-upload."
             ) from exc
 
         send2trash(str(local_file))

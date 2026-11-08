@@ -47,7 +47,7 @@ from .config import (
 
 
 POST_UPLOAD_ACTION_OPTIONS = (
-    ("Recycle local files after upload", "recycle"),
+    ("Send local files to trash after upload", "trash"),
     ("Move local files after upload", "move"),
     ("Delete local files permanently after upload", "delete"),
 )
@@ -528,8 +528,8 @@ def _describe_post_upload_policy(directory: MonitoredDirectory) -> str:
     """Return a short user-facing summary of the folder cleanup policy."""
 
     action = normalize_post_upload_action(directory.post_upload_action)
-    if action == "recycle":
-        return "send to recycling bin after upload"
+    if action == "trash":
+        return "send to trash after upload"
     if action == "delete":
         return "delete permanently after upload"
     if action == "move":

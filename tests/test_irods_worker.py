@@ -159,13 +159,13 @@ def test_cancelling_a_folder_stops_uploads_until_allowed_again(tmp_path):
     worker.upload_failed.connect(lambda path, message: events.append(("failed", message)))
 
     worker.cancel_directory_uploads(str(root))
-    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "recycle", "")
+    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "trash", "")
 
     assert [kind for kind, _ in events] == ["cancelled"]
 
     events.clear()
     worker.allow_directory_uploads(str(root))
-    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "recycle", "")
+    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "trash", "")
 
     # No longer cancelled, so it runs on and fails on the empty credentials instead.
     assert [kind for kind, _ in events] == ["failed"]
@@ -182,7 +182,7 @@ def test_failed_upload_reports_the_failing_step(tmp_path):
     failures: list[str] = []
     worker.upload_failed.connect(lambda path, message: failures.append(message))
 
-    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "recycle", "")
+    worker.upload_file(str(queued_file), str(root), "/tempZone/home/alice", "trash", "")
 
     assert failures == [
         "validating iRODS settings: Missing iRODS settings: "
@@ -256,7 +256,7 @@ def test_upload_file_round_trips_into_a_live_zone(tmp_path, irods_environment):
 
 @pytest.fixture
 def trashed_files(monkeypatch):
-    """Record files sent to the recycle bin instead of really trashing them."""
+    """Record files sent to the trash instead of really trashing them."""
 
     import send2trash
 
@@ -265,21 +265,20 @@ def trashed_files(monkeypatch):
     return sent
 
 
-def test_legacy_keep_sends_the_local_file_to_the_trash(tmp_path, trashed_files):
-    # A queued upload from an older config must recycle, not keep or permanently
-    # delete, the local file after a successful transfer.
+def test_legacy_recycle_sends_the_local_file_to_trash(tmp_path, trashed_files):
+    # A queued upload using the old name must still send the local file to trash.
     root = (tmp_path / "watched").resolve()
     root.mkdir()
     uploaded = root / "report.csv"
     uploaded.write_text("data", encoding="utf-8")
 
-    IRODSUploadWorker()._run_post_upload_action(uploaded, root, "keep", "")
+    IRODSUploadWorker()._run_post_upload_action(uploaded, root, "recycle", "")
 
     assert trashed_files == [str(uploaded)]
 
 
 def test_delete_removes_the_local_file(tmp_path):
-    # The "delete" policy removes the file outright — it does not go to the recycle
+    # The "delete" policy removes the file outright — it does not go to the trash
     # bin, so there is nothing to restore it from.
     root = (tmp_path / "watched").resolve()
     root.mkdir()
@@ -291,15 +290,15 @@ def test_delete_removes_the_local_file(tmp_path):
     assert not uploaded.exists()
 
 
-def test_recycle_sends_the_local_file_to_the_trash(tmp_path, trashed_files):
-    # The "recycle" policy defers to the operating system's trash rather than deleting,
+def test_trash_sends_the_local_file_to_the_trash(tmp_path, trashed_files):
+    # The "trash" policy defers to the operating system's trash rather than deleting,
     # so the user can still get the file back.
     root = (tmp_path / "watched").resolve()
     root.mkdir()
     uploaded = root / "report.csv"
     uploaded.write_text("data", encoding="utf-8")
 
-    IRODSUploadWorker()._run_post_upload_action(uploaded, root, "recycle", "")
+    IRODSUploadWorker()._run_post_upload_action(uploaded, root, "trash", "")
 
     assert trashed_files == [str(uploaded)]
 

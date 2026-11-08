@@ -242,7 +242,7 @@ def test_folder_row_shows_target_and_cleanup_policy(settings_window):
     # gives that uploading removes the local copy.
     settings_window.set_directories(
         [
-            MonitoredDirectory("/recycled", "/tempZone/x", "recycle", ""),
+            MonitoredDirectory("/trashed", "/tempZone/x", "trash", ""),
             MonitoredDirectory("/wiped", "/tempZone/y", "delete", ""),
             MonitoredDirectory("/moved", "/tempZone/z", "move", "/archive"),
         ],
@@ -251,19 +251,19 @@ def test_folder_row_shows_target_and_cleanup_policy(settings_window):
 
     rows = [settings_window.directory_list.item(row).text() for row in range(3)]
 
-    assert "/tempZone/x" in rows[0] and "recycling bin" in rows[0]
+    assert "/tempZone/x" in rows[0] and "send to trash" in rows[0]
     assert "recursive" not in rows[0].lower()
     assert "recursive" not in settings_window.directory_list.item(0).toolTip().lower()
     assert "delete" in rows[1]
     assert "/archive" in rows[2]
 
 
-def test_legacy_keep_folder_is_described_as_recycle(settings_window):
+def test_legacy_recycle_folder_is_described_as_trash(settings_window):
     settings_window.set_directories(
-        [MonitoredDirectory("/legacy", "/tempZone/x", "keep", "")], set()
+        [MonitoredDirectory("/legacy", "/tempZone/x", "recycle", "")], set()
     )
 
-    assert "recycling bin" in settings_window.directory_list.item(0).text()
+    assert "send to trash" in settings_window.directory_list.item(0).text()
 
 
 def test_setting_the_toggle_does_not_emit_a_change(
@@ -336,7 +336,7 @@ def test_add_folder_dialog_defaults_to_delete():
     dialog = AddDirectoryDialog("tempZone", [])
 
     assert dialog.post_upload_action_input.currentData() == DEFAULT_POST_UPLOAD_ACTION
-    assert dialog.post_upload_action_input.findData("keep") == -1
+    assert dialog.post_upload_action_input.findData("recycle") == -1
 
 
 def test_move_destination_box_appears_only_for_move():
@@ -376,7 +376,7 @@ def test_add_folder_dialog_refuses_a_destination_inside_a_watch(tmp_path, destin
     target = source / "archive" if destination == "inside-itself" else already_watched / "archive"
 
     dialog = AddDirectoryDialog(
-        "tempZone", [MonitoredDirectory(str(already_watched), "/tempZone/x", "keep", "")]
+        "tempZone", [MonitoredDirectory(str(already_watched), "/tempZone/x", "trash", "")]
     )
     dialog.source_directory_input.setText(str(source))
     dialog.post_upload_action_input.setCurrentIndex(
@@ -394,10 +394,10 @@ def test_add_folder_dialog_returns_the_cleanup_action(tmp_path):
     dialog = AddDirectoryDialog("tempZone", [])
     dialog.source_directory_input.setText(str(tmp_path))
     dialog.post_upload_action_input.setCurrentIndex(
-        dialog.post_upload_action_input.findData("recycle")
+        dialog.post_upload_action_input.findData("trash")
     )
 
     directory = dialog.get_directory()
 
-    assert directory.post_upload_action == "recycle"
+    assert directory.post_upload_action == "trash"
     assert directory.post_upload_destination == ""
