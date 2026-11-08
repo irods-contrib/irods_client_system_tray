@@ -17,6 +17,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Queue existing files when a folder is first added for monitoring.
 - Show intermediate upload progress as file data is transferred.
 - Include underlying errors and reported byte counts when a parallel upload fails.
+- Fix parallel uploads under Python 3.15 when Qt leaves a lazy executor unresolved.
 - Rename the post-upload recycle mode to trash, alongside move and delete.
 - Reject move-after-upload settings without a destination.
 - Add launcher help and foreground options, and hide the macOS launcher from the Dock.

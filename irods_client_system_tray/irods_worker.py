@@ -35,9 +35,21 @@ class IRODSUploadWorker(QObject):
 
     def __init__(self, environment: IRODSEnvironment | None = None) -> None:
         super().__init__()
+        self._prepare_parallel_uploads()
         self._environment = self._copy_environment(environment or IRODSEnvironment())
         self._cancelled_monitored_roots: set[str] = set()
         self._cancelled_monitored_roots_lock = Lock()
+
+    @staticmethod
+    def _prepare_parallel_uploads() -> None:
+        """Resolve Python 3.15's lazy executor before moving into a Qt thread."""
+
+        import concurrent.futures
+
+        if not callable(concurrent.futures.ThreadPoolExecutor):
+            from concurrent.futures.thread import ThreadPoolExecutor
+
+            concurrent.futures.ThreadPoolExecutor = ThreadPoolExecutor
 
     @Slot(object)
     def set_environment(self, environment: object) -> None:
