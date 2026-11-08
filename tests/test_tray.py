@@ -61,7 +61,7 @@ def watched(controller, tmp_path):
 
     folder = tmp_path / "watched"
     folder.mkdir()
-    controller.add_directory(MonitoredDirectory(str(folder), "home/alice", "recycle", ""))
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice", "trash", ""))
     return folder
 
 
@@ -103,7 +103,7 @@ def test_added_folder_target_is_anchored_under_the_zone(controller, watched):
 def test_duplicate_folder_is_rejected(controller, watched):
     # Checks a duplicate is refused with a message, and the original settings are
     # left alone rather than being overwritten by the second attempt.
-    controller.add_directory(MonitoredDirectory(str(watched), "home/somewhere-else", "recycle", ""))
+    controller.add_directory(MonitoredDirectory(str(watched), "home/somewhere-else", "trash", ""))
 
     assert _stored_folders(controller) == [(str(watched), "/tempZone/home/alice")]
     assert "Already monitoring" in controller.window.status_label.text()
@@ -115,7 +115,7 @@ def test_folder_inside_a_recursive_watch_is_rejected(controller, watched):
     nested = watched / "nested"
     nested.mkdir()
 
-    controller.add_directory(MonitoredDirectory(str(nested), "home/nested", "recycle", ""))
+    controller.add_directory(MonitoredDirectory(str(nested), "home/nested", "trash", ""))
 
     assert len(controller.config.monitored_directories) == 1
     assert "overlaps monitored folder" in controller.window.status_label.text()
@@ -125,7 +125,7 @@ def test_sibling_with_similar_name_is_not_an_overlap(controller, watched, tmp_pa
     sibling = tmp_path / "watched-other"
     sibling.mkdir()
 
-    controller.add_directory(MonitoredDirectory(str(sibling), "home/other", "recycle", ""))
+    controller.add_directory(MonitoredDirectory(str(sibling), "home/other", "trash", ""))
 
     assert len(controller.config.monitored_directories) == 2
     assert controller.config.monitored_directories[1].source_directory == str(sibling)
@@ -153,15 +153,15 @@ def test_legacy_nested_folders_use_the_deepest_matching_settings(
     inner = outer / "inner"
     inner.mkdir(parents=True)
     controller.config.monitored_directories = [
-        MonitoredDirectory(str(outer), "/tempZone/home/outer", "recycle", ""),
-        MonitoredDirectory(str(inner), "/tempZone/home/inner", "recycle", ""),
+        MonitoredDirectory(str(outer), "/tempZone/home/outer", "trash", ""),
+        MonitoredDirectory(str(inner), "/tempZone/home/inner", "trash", ""),
     ]
     created = inner / "report.csv"
     created.write_text("data", encoding="utf-8")
 
     controller._queue_ingestion(str(created))
 
-    assert queued_uploads == [(str(created), str(inner), "/tempZone/home/inner", "recycle", "")]
+    assert queued_uploads == [(str(created), str(inner), "/tempZone/home/inner", "trash", "")]
 
 
 def test_duplicate_events_queue_a_file_once(controller, queued_uploads, watched_file):
@@ -430,15 +430,15 @@ def test_signing_out_locks_the_app_and_clears_the_queue(controller, queued_uploa
 # --- post-upload cleanup rules --------------------------------------------------
 
 
-def test_legacy_keep_action_is_saved_as_recycle(controller, tmp_path):
+def test_legacy_recycle_action_is_saved_as_trash(controller, tmp_path):
     folder = tmp_path / "watched"
     folder.mkdir()
 
-    controller.add_directory(MonitoredDirectory(str(folder), "home/alice", "keep", ""))
+    controller.add_directory(MonitoredDirectory(str(folder), "home/alice", "recycle", ""))
 
-    assert controller.config.monitored_directories[0].post_upload_action == "recycle"
+    assert controller.config.monitored_directories[0].post_upload_action == "trash"
     saved = json.loads((tmp_path / "app_state.json").read_text(encoding="utf-8"))
-    assert saved["monitored_directories"][0]["post_upload_action"] == "recycle"
+    assert saved["monitored_directories"][0]["post_upload_action"] == "trash"
 
 
 @pytest.mark.parametrize(
@@ -505,7 +505,7 @@ def test_recursive_watch_above_an_existing_folder_is_rejected(controller, watche
     # The reverse of adding a subfolder to a recursive watch: a new recursive watch
     # that would swallow a folder already being monitored is refused, since every file
     # inside it would be uploaded by both.
-    controller.add_directory(MonitoredDirectory(str(tmp_path), "home/parent", "recycle", ""))
+    controller.add_directory(MonitoredDirectory(str(tmp_path), "home/parent", "trash", ""))
 
     assert _stored_folders(controller) == [(str(watched), "/tempZone/home/alice")]
     assert "overlaps monitored folder" in controller.window.status_label.text()

@@ -31,7 +31,7 @@ CONFIG_PATH = APP_CONFIG_DIR / "app_state.json"
 IRODS_ENVIRONMENT_PATH = APP_CONFIG_DIR / "irods_environment.json"
 ACTIVITY_LOG_PATH = APP_CONFIG_DIR / "activity.log"
 DEFAULT_POST_UPLOAD_ACTION = "delete"
-POST_UPLOAD_ACTIONS = frozenset({"recycle", "delete", "move"})
+POST_UPLOAD_ACTIONS = frozenset({"trash", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"
 REGEX_FILTER_MODES = frozenset({"allow", "deny", "disabled"})
 
@@ -118,11 +118,11 @@ def find_overlapping_monitored_directory(
 
 
 def normalize_post_upload_action(action: str) -> str:
-    """Migrate legacy keep settings to recycle; default unknown actions to delete."""
+    """Migrate legacy recycle settings to trash; default unknown actions to delete."""
 
     normalized_action = str(action).strip().lower()
-    if normalized_action == "keep":
-        return "recycle"
+    if normalized_action == "recycle":
+        return "trash"
     if normalized_action not in POST_UPLOAD_ACTIONS:
         return DEFAULT_POST_UPLOAD_ACTION
     return normalized_action

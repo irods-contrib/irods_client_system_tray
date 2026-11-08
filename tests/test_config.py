@@ -185,40 +185,44 @@ def test_legacy_recursive_setting_is_ignored_and_removed_on_save(tmp_path):
 @pytest.mark.parametrize(
     ("stored_action", "expected"),
     [
-        ("recycle", "recycle"),
-        ("  ReCyCle ", "recycle"),
+        ("trash", "trash"),
+        ("  TrAsH ", "trash"),
         # Anything the app does not recognize becomes the default, which is "delete".
         ("banana", DEFAULT_POST_UPLOAD_ACTION),
         ("", DEFAULT_POST_UPLOAD_ACTION),
     ],
 )
-def test_unrecognized_cleanup_action_falls_back_to_delete(stored_action, expected):
+def test_cleanup_action_normalization(stored_action, expected):
     # The saved file is hand-editable, so it can hold anything. A value the app does
     # not know falls back to DEFAULT_POST_UPLOAD_ACTION, which permanently deletes the
     # local file after upload — the fallback is the destructive one.
     assert normalize_post_upload_action(stored_action) == expected
 
 
-def test_legacy_keep_action_migrates_to_recycle_on_load_and_save(tmp_path):
+def test_legacy_recycle_action_migrates_to_trash_on_load_and_save(tmp_path):
     source = str(tmp_path / "watched")
     store = ConfigStore(path=tmp_path / "app_state.json")
     store.path.write_text(
         json.dumps(
-            {"monitored_directories": [{"source_directory": source, "post_upload_action": "keep"}]}
+            {
+                "monitored_directories": [
+                    {"source_directory": source, "post_upload_action": "recycle"}
+                ]
+            }
         ),
         encoding="utf-8",
     )
 
     loaded = store.load()
-    assert loaded.monitored_directories[0].post_upload_action == "recycle"
-    assert normalize_post_upload_action("  KEEP ") == "recycle"
+    assert loaded.monitored_directories[0].post_upload_action == "trash"
+    assert normalize_post_upload_action("  RECYCLE ") == "trash"
     assert normalize_monitored_directories(
-        [MonitoredDirectory(source_directory=source, post_upload_action="keep")]
-    )[0].post_upload_action == "recycle"
+        [MonitoredDirectory(source_directory=source, post_upload_action="recycle")]
+    )[0].post_upload_action == "trash"
 
     store.save(loaded)
     saved = json.loads(store.path.read_text(encoding="utf-8"))
-    assert saved["monitored_directories"][0]["post_upload_action"] == "recycle"
+    assert saved["monitored_directories"][0]["post_upload_action"] == "trash"
 
 
 def test_folder_without_a_cleanup_action_defaults_to_delete(tmp_path):
@@ -243,19 +247,19 @@ def test_move_without_a_destination_falls_back_to_delete(tmp_path):
 
 
 def test_destination_is_kept_only_for_the_move_action(tmp_path):
-    # Recycle removes the file without moving it to an archive, so a leftover
+    # Trash removes the file without moving it to an archive, so a leftover
     # destination from an earlier edit is discarded rather than being acted on.
     loaded = normalize_monitored_directories(
         [
             {
                 "source_directory": str(tmp_path),
-                "post_upload_action": "keep",
+                "post_upload_action": "trash",
                 "post_upload_destination": str(tmp_path / "archive"),
             }
         ]
     )[0]
 
-    assert loaded.post_upload_action == "recycle"
+    assert loaded.post_upload_action == "trash"
     assert loaded.post_upload_destination == ""
 
 
