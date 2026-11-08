@@ -52,6 +52,7 @@ def settings_window(activity_log):
 def test_settings_window_uses_irods_ingest_name(settings_window):
     assert settings_window.windowTitle() == "iRODS Ingest"
     assert settings_window.title_label.text() == "iRODS Ingest"
+    assert not hasattr(settings_window, "subtitle_label")
 
 
 @pytest.fixture

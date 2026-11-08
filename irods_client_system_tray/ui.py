@@ -1014,9 +1014,6 @@ class SettingsWindow(QWidget):
         self.title_label = QLabel("iRODS Ingest")
         self.title_label.setObjectName("settingsTitleLabel")
 
-        self.subtitle_label = QLabel("Monitor folders in the background from the system tray.")
-        self.subtitle_label.setObjectName("settingsSubtitleLabel")
-
         self.monitor_toggle = QCheckBox("Background monitoring enabled")
         self.monitor_toggle.toggled.connect(self.monitoring_toggled)
         self.monitor_toggle.setObjectName("monitorToggleCheckbox")
@@ -1210,7 +1207,6 @@ class SettingsWindow(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
         layout.addWidget(self.title_label)
-        layout.addWidget(self.subtitle_label)
         layout.addWidget(self.monitor_toggle)
         layout.addWidget(self.status_label)
         layout.addWidget(self.tabs, 1)

@@ -9,10 +9,6 @@ QLabel#settingsTitleLabel {
     font-size: $font_display;
     font-weight: 600;
 }
-QLabel#settingsSubtitleLabel {
-    color: $muted;
-    font-size: $font_sm;
-}
 QCheckBox#monitorToggleCheckbox {
     color: $text;
     font-size: $font_lg;
