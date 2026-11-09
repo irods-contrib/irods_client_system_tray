@@ -1208,13 +1208,18 @@ class SettingsWindow(QWidget):
         activity_title.setObjectName("activityTitle")
 
         self.activity_list = QListWidget()
-        self.activity_list.setMaximumHeight(140)
+        self.activity_list.setObjectName("activityList")
         self.load_activity()
 
         overview_layout.addWidget(directory_card, 1)
         overview_layout.addWidget(failed_uploads_card)
-        overview_layout.addWidget(activity_title)
-        overview_layout.addWidget(self.activity_list)
+
+        activity_tab = QWidget()
+        activity_layout = QVBoxLayout(activity_tab)
+        activity_layout.setContentsMargins(0, 0, 0, 0)
+        activity_layout.setSpacing(14)
+        activity_layout.addWidget(activity_title)
+        activity_layout.addWidget(self.activity_list, 1)
 
         settings_tab = QWidget()
         settings_layout = QVBoxLayout(settings_tab)
@@ -1226,6 +1231,8 @@ class SettingsWindow(QWidget):
 
         self.tabs.addTab(overview_tab, "Overview")
         self.tabs.addTab(settings_tab, "Settings")
+        self.tabs.addTab(activity_tab, "Activity")
+        self.tabs.currentChanged.connect(self._scroll_activity_when_selected)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
@@ -1430,6 +1437,10 @@ class SettingsWindow(QWidget):
         self.activity_list.clear()
         for entry in self.activity_log.read_recent():
             self.activity_list.addItem(entry)
+
+    def _scroll_activity_when_selected(self, index: int) -> None:
+        if self.tabs.tabText(index) == "Activity":
+            QTimer.singleShot(0, self.activity_list.scrollToBottom)
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Scroll to the newest activity after the window first appears."""
