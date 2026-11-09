@@ -28,6 +28,7 @@ from .config import (
     find_overlapping_monitored_directory,
     normalize_maximum_upload_workers,
     normalize_write_chunk_size,
+    normalize_parallel_upload_threads,
     normalize_memory_cap,
     maximum_upload_workers_limit,
     DEFAULT_SINGLE_WRITE_CHUNK_MIB,
@@ -42,7 +43,7 @@ from .config import (
     rezone_target_collection,
 )
 from .auto_workers import AutomaticUploadWorkers, TransferSample
-from .auto_chunks import AutomaticChunkSize, PARALLEL_TRANSFER_THREADS
+from .auto_chunks import AutomaticChunkSize, CHUNK_SIZES_MIB
 from .irods_worker import IRODSUploadWorker
 from .monitor import MonitorManager
 from .ui import LoginDialog, SettingsWindow
@@ -67,6 +68,7 @@ class UploadJob:
     bytes_sent: int = 0
     is_parallel: bool = False
     chunk_size_mib: int = 0
+    parallel_upload_threads: int = 1
     retry_timer: QTimer | None = field(default=None, repr=False, compare=False)
 
 
@@ -129,12 +131,14 @@ class TrayController(QObject):
         )
         self._single_chunk_mib = self.config.single_write_chunk_size_mib
         self._parallel_chunk_mib = self.config.parallel_write_chunk_size_mib
+        self._effective_parallel_threads = self.config.parallel_upload_threads
         self._chunk_tuners = (
             {
                 False: AutomaticChunkSize(self._single_chunk_mib),
                 True: AutomaticChunkSize(
                     self._parallel_chunk_mib, parallel=True,
                     memory_cap_mib=self.config.memory_cap_mib,
+                    parallel_threads=self._effective_parallel_threads,
                 ),
             }
             if self.config.automatic_upload_settings else None
@@ -196,6 +200,7 @@ class TrayController(QObject):
         self.window.set_write_chunk_settings(
             self.config.single_write_chunk_size_mib, self.config.parallel_write_chunk_size_mib,
         )
+        self.window.set_parallel_upload_threads(self.config.parallel_upload_threads)
         self._show_chunk_status()
         self._show_auto_worker_status()
         self._update_upload_summary()
@@ -428,6 +433,9 @@ class TrayController(QObject):
             self.config.parallel_write_chunk_size_mib = normalize_write_chunk_size(
                 parallel, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
             )
+            self.config.parallel_upload_threads = normalize_parallel_upload_threads(
+                self.window.get_parallel_upload_threads()
+            )
         if automatic != self.config.automatic_upload_settings:
             self._auto_workers = (
                 AutomaticUploadWorkers(maximum_upload_workers_limit()) if automatic else None
@@ -438,11 +446,14 @@ class TrayController(QObject):
                     True: AutomaticChunkSize(
                         self.config.parallel_write_chunk_size_mib, parallel=True,
                         memory_cap_mib=self.config.memory_cap_mib,
+                        parallel_threads=self.config.parallel_upload_threads,
                     ),
                 }
                 if automatic else None
             )
         self.config.automatic_upload_settings = automatic
+        if not automatic:
+            self._effective_parallel_threads = self.config.parallel_upload_threads
         if automatic and self._chunk_tuners is not None:
             self._chunk_tuners[True].memory_cap_mib = self.config.memory_cap_mib
             if cap_changed:
@@ -471,6 +482,7 @@ class TrayController(QObject):
         self.window.set_maximum_upload_workers(self.config.maximum_upload_workers)
         self.window.set_automatic_upload_workers(automatic, self.config.memory_cap_mib)
         if not automatic:
+            self.window.set_parallel_upload_threads(self.config.parallel_upload_threads)
             self.window.set_write_chunk_settings(
                 self.config.single_write_chunk_size_mib, self.config.parallel_write_chunk_size_mib
             )
@@ -492,6 +504,7 @@ class TrayController(QObject):
         self.config.maximum_upload_workers = self._effective_upload_workers
         self.config.single_write_chunk_size_mib = self._single_chunk_mib
         self.config.parallel_write_chunk_size_mib = self._parallel_chunk_mib
+        self.config.parallel_upload_threads = self._effective_parallel_threads
 
     def sign_out(self) -> None:
         """Lock the app and return control to the sign-in dialog."""
@@ -590,18 +603,27 @@ class TrayController(QObject):
         if self._chunk_tuners is None:
             return
         parallel_tuner = self._chunk_tuners[True]
+        self._effective_parallel_threads = min(
+            self.config.parallel_upload_threads,
+            max(1, self.config.memory_cap_mib // min(CHUNK_SIZES_MIB)),
+        )
+        if parallel_tuner.parallel_threads != self._effective_parallel_threads:
+            parallel_tuner.parallel_threads = self._effective_parallel_threads
+            parallel_tuner.reset()
+            if self._auto_workers is not None:
+                self._auto_workers.reset_observations()
         parallel_tuner.limit_for_workers(1)
         if self._auto_workers is not None:
             max_at_current_size = max(
                 1, self.config.memory_cap_mib //
-                (PARALLEL_TRANSFER_THREADS * parallel_tuner.current)
+                (self._effective_parallel_threads * parallel_tuner.current)
             )
             self._effective_upload_workers = self._auto_workers.set_ceiling(
                 min(maximum_upload_workers_limit(), max_at_current_size)
             )
         max_workers = max(
             1, self.config.memory_cap_mib //
-            (PARALLEL_TRANSFER_THREADS * 4)
+            (self._effective_parallel_threads * min(CHUNK_SIZES_MIB))
         )
         self._effective_upload_workers = min(self._effective_upload_workers, max_workers)
         size = parallel_tuner.limit_for_workers(self._effective_upload_workers)
@@ -1018,6 +1040,7 @@ class TrayController(QObject):
     def _show_auto_worker_status(self) -> None:
         if self._auto_workers is not None:
             self.window.set_auto_worker_status(self._effective_upload_workers)
+            self.window.set_parallel_upload_threads(self._effective_parallel_threads)
 
     def _apply_auto_worker_change(self, new_limit: int | None) -> None:
         if self._auto_workers is None:
@@ -1071,11 +1094,16 @@ class TrayController(QObject):
             slot.busy_path = job.local_path
             self._active_uploads[job.local_path] = slot
             job.status = "dispatched"
-            job.is_parallel = job.size_bytes > self.PARALLEL_TRANSFER_THRESHOLD
+            job.parallel_upload_threads = self._effective_parallel_threads
+            job.is_parallel = (
+                job.size_bytes > self.PARALLEL_TRANSFER_THRESHOLD
+                and job.parallel_upload_threads > 1
+            )
             job.chunk_size_mib = (
                 self._parallel_chunk_mib if job.is_parallel else self._single_chunk_mib
             )
             slot.worker.write_buffer_size = job.chunk_size_mib * 1024 * 1024
+            slot.worker.parallel_upload_threads = job.parallel_upload_threads
             args = (
                 job.local_path,
                 job.monitored_root,
@@ -1216,7 +1244,10 @@ class TrayController(QObject):
         job = self._queued_uploads.get(local_path)
         if job is not None:
             job.size_bytes = max(0, total_bytes)
-            job.is_parallel = job.size_bytes > self.PARALLEL_TRANSFER_THRESHOLD
+            job.is_parallel = (
+                job.size_bytes > self.PARALLEL_TRANSFER_THRESHOLD
+                and job.parallel_upload_threads > 1
+            )
             if job.is_parallel:
                 job.chunk_size_mib = self._parallel_chunk_mib
             previous_bytes = job.bytes_sent

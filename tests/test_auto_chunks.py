@@ -44,6 +44,15 @@ def test_parallel_candidates_use_configured_memory_cap():
     assert tuner.limit_for_workers(2) == 4
 
 
+def test_parallel_candidates_use_configured_threads_per_upload():
+    tuner = AutomaticChunkSize(8, parallel=True, memory_cap_mib=48, parallel_threads=4)
+
+    assert tuner.limit_for_workers(2) == 4
+    assert tuner._allowed(8, 2) is False
+    tuner.parallel_threads = 2
+    assert tuner._allowed(8, 2) is True
+
+
 def test_parallel_probe_reverts_after_transfer_failure_but_not_authentication_error():
     tuner = AutomaticChunkSize(4, parallel=True)
     assert record_window(tuner, 0) == 8

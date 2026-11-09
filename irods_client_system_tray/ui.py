@@ -46,6 +46,7 @@ from .config import (
     MAX_MEMORY_CAP_MIB,
     DEFAULT_SINGLE_WRITE_CHUNK_MIB,
     DEFAULT_PARALLEL_WRITE_CHUNK_MIB,
+    DEFAULT_PARALLEL_UPLOAD_THREADS,
     WRITE_CHUNK_SIZES_MIB,
     IRODSEnvironment,
     MonitoredDirectory,
@@ -1113,6 +1114,15 @@ class SettingsWindow(QWidget):
         self.maximum_upload_workers_input.setValue(
             min(DEFAULT_MAXIMUM_UPLOAD_WORKERS, maximum_upload_workers_limit())
         )
+        self.parallel_upload_threads_input = QSpinBox()
+        self.parallel_upload_threads_input.setObjectName("parallelUploadThreads")
+        self.parallel_upload_threads_input.setRange(1, maximum_upload_workers_limit())
+        self.parallel_upload_threads_input.setToolTip(
+            "One thread uses single-threaded PUT even for large files."
+        )
+        self.parallel_upload_threads_input.setValue(
+            min(DEFAULT_PARALLEL_UPLOAD_THREADS, maximum_upload_workers_limit())
+        )
         self.automatic_mode_radio = QRadioButton("Automatic")
         self.manual_mode_radio = QRadioButton("Manual")
         self.upload_mode_group = QButtonGroup(self)
@@ -1174,6 +1184,7 @@ class SettingsWindow(QWidget):
         manual_form_layout = QFormLayout()
         manual_form_layout.setSpacing(10)
         manual_form_layout.addRow("Upload workers", self.maximum_upload_workers_input)
+        manual_form_layout.addRow("Threads per upload", self.parallel_upload_threads_input)
         manual_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
         manual_form_layout.addRow("Parallel write", self.parallel_write_chunk_input)
         manual_layout.addWidget(self.manual_mode_radio)
@@ -1482,6 +1493,13 @@ class SettingsWindow(QWidget):
     def get_memory_cap(self) -> int:
         return self.memory_cap_input.value()
 
+    def set_parallel_upload_threads(self, threads: int) -> None:
+        self.parallel_upload_threads_input.setRange(1, maximum_upload_workers_limit())
+        self.parallel_upload_threads_input.setValue(threads)
+
+    def get_parallel_upload_threads(self) -> int:
+        return self.parallel_upload_threads_input.value()
+
     def set_auto_worker_status(self, workers: int) -> None:
         if self.automatic_mode_radio.isChecked():
             self.maximum_upload_workers_input.setValue(workers)
@@ -1515,6 +1533,7 @@ class SettingsWindow(QWidget):
     def _update_worker_mode_state(self, *_args) -> None:
         automatic = self.automatic_mode_radio.isChecked()
         self.maximum_upload_workers_input.setEnabled(not automatic)
+        self.parallel_upload_threads_input.setEnabled(not automatic)
         self.memory_cap_input.setEnabled(automatic)
         self.single_write_chunk_input.setEnabled(not automatic)
         self.parallel_write_chunk_input.setEnabled(not automatic)

@@ -180,8 +180,9 @@ def test_stream_upload_reports_chunk_progress(
     local_file = tmp_path / "report.csv"
     logical_path = "/tempZone/home/alice/report.csv"
 
-    def fake_put(local_path, target_path, *, updatables):
+    def fake_put(local_path, target_path, *, num_threads, updatables):
         assert (local_path, target_path) == (str(local_file), logical_path)
+        assert num_threads == worker.parallel_upload_threads
         for chunk_size in chunks:
             updatables(chunk_size)
 
@@ -239,6 +240,23 @@ def test_upload_worker_uses_selected_single_thread_write_size(tmp_path, monkeypa
     assert fake_session.data_objects.WRITE_BUFFER_SIZE == 4 * 1024 * 1024
 
 
+def test_upload_worker_passes_selected_threads_to_irods(tmp_path, monkeypatch):
+    from irods import session as irods_session
+
+    fake_session = MagicMock()
+    fake_session.__enter__.return_value = fake_session
+    monkeypatch.setattr(irods_session, "iRODSSession", lambda **_kwargs: fake_session)
+    worker = IRODSUploadWorker()
+    worker.parallel_upload_threads = 1
+
+    worker._stream_upload(
+        tmp_path / "large.bin", "/tempZone/home/alice/large.bin",
+        "/tempZone/home/alice", 33 * 1024 * 1024, IRODSEnvironment(),
+    )
+
+    assert fake_session.data_objects.put.call_args.kwargs["num_threads"] == 1
+
+
 def test_empty_error_falls_back_to_the_exception_name():
     # Checks the user never sees a blank error. Some iRODS client exceptions carry
     # no text at all, so the worker falls back to the exception type name.
@@ -273,7 +291,8 @@ def test_parallel_failure_reports_bytes_and_underlying_cause(
     fake_session = MagicMock()
     fake_session.__enter__.return_value = fake_session
 
-    def fake_put(_local, _logical, *, updatables):
+    def fake_put(_local, _logical, *, num_threads, updatables):
+        assert num_threads == worker.parallel_upload_threads
         updatables(2)
         if cause_kind == "connection":
             raise RuntimeError("parallel put failed") from ConnectionResetError(

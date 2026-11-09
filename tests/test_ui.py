@@ -771,6 +771,8 @@ def test_upload_modes_are_side_by_side_with_memory_cap_units(settings_window, qa
     assert automatic_card.isAncestorOf(settings_window.memory_cap_input)
     assert manual_card.isAncestorOf(settings_window.manual_mode_radio)
     assert manual_card.isAncestorOf(settings_window.maximum_upload_workers_input)
+    assert manual_card.isAncestorOf(settings_window.parallel_upload_threads_input)
+    assert "single-threaded PUT" in settings_window.parallel_upload_threads_input.toolTip()
     assert manual_card.isAncestorOf(settings_window.single_write_chunk_input)
     assert manual_card.isAncestorOf(settings_window.parallel_write_chunk_input)
     assert settings_window.memory_cap_description.text().endswith("automatically.")
@@ -811,7 +813,13 @@ def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
 def test_automatic_worker_control_shows_effective_count(settings_window):
     assert not settings_window.get_automatic_upload_workers()
     assert settings_window.maximum_upload_workers_input.isEnabled()
+    assert settings_window.parallel_upload_threads_input.isEnabled()
     assert not settings_window.memory_cap_input.isEnabled()
+
+    settings_window.set_parallel_upload_threads(2)
+    assert settings_window.get_parallel_upload_threads() == min(
+        2, config_module.maximum_upload_workers_limit()
+    )
 
     settings_window.set_automatic_upload_workers(True, 512)
     settings_window.set_auto_worker_status(2)
@@ -819,11 +827,13 @@ def test_automatic_worker_control_shows_effective_count(settings_window):
     assert settings_window.get_automatic_upload_workers()
     assert settings_window.get_memory_cap() == 512
     assert not settings_window.maximum_upload_workers_input.isEnabled()
+    assert not settings_window.parallel_upload_threads_input.isEnabled()
     assert settings_window.maximum_upload_workers_input.value() == 2
     assert settings_window.memory_cap_input.isEnabled()
 
     settings_window.set_automatic_upload_workers(False, 512)
     assert settings_window.maximum_upload_workers_input.isEnabled()
+    assert settings_window.parallel_upload_threads_input.isEnabled()
     assert settings_window.maximum_upload_workers_input.value() == 2
     assert not settings_window.memory_cap_input.isEnabled()
 

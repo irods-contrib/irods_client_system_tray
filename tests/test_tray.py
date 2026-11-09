@@ -764,6 +764,29 @@ def test_automatic_memory_cap_limits_workers_and_parallel_write_size(controller)
     assert controller.config_store.load().parallel_write_chunk_size_mib == 4
 
 
+def test_automatic_memory_cap_uses_configured_threads_and_clamps_them(controller):
+    if config.maximum_upload_workers_limit() < 4:
+        pytest.skip("Needs at least four local CPUs")
+    window = controller.window
+    window.parallel_upload_threads_input.setValue(4)
+    window.automatic_mode_radio.setChecked(True)
+    window.memory_cap_input.setValue(48)
+    window.save_settings_button.click()
+
+    assert controller._effective_parallel_threads == 4
+    assert controller._auto_workers.ceiling == 3  # 48 / (4 threads * 4 MiB).
+    assert controller._chunk_tuners[True]._allowed(8, 2) is False
+    assert window.get_parallel_upload_threads() == 4
+    assert not window.parallel_upload_threads_input.isEnabled()
+
+    window.memory_cap_input.setValue(12)
+    window.save_settings_button.click()
+    assert controller._effective_parallel_threads == 3  # 12 / minimum 4 MiB.
+    assert controller._effective_upload_workers == 1
+    assert window.get_parallel_upload_threads() == 3
+    assert controller.config_store.load().parallel_upload_threads == 3
+
+
 def test_manual_write_sizes_apply_to_single_and_parallel_jobs(
     controller, queued_uploads, monkeypatch, tmp_path
 ):
@@ -778,9 +801,11 @@ def test_manual_write_sizes_apply_to_single_and_parallel_jobs(
     controller.window.parallel_write_chunk_input.setCurrentIndex(
         controller.window.parallel_write_chunk_input.findData(16)
     )
+    controller.window.parallel_upload_threads_input.setValue(2)
     controller.window.save_settings_button.click()
 
     assert controller.config_store.load().parallel_write_chunk_size_mib == 16
+    assert controller.config_store.load().parallel_upload_threads == 2
     assert irods_parallel.COPY_BUF_SIZE == 16 * 1024 * 1024
 
     folder = tmp_path / "watched"
@@ -802,6 +827,29 @@ def test_manual_write_sizes_apply_to_single_and_parallel_jobs(
     assert {slot.worker.write_buffer_size for slot in controller._upload_workers[:2]} == {
         4 * 1024 * 1024, 16 * 1024 * 1024
     }
+    assert {slot.worker.parallel_upload_threads for slot in controller._upload_workers[:2]} == {2}
+
+
+def test_one_thread_uses_single_thread_write_size_for_large_file(
+    controller, queued_uploads, tmp_path
+):
+    controller.window.parallel_upload_threads_input.setValue(1)
+    controller.window.save_settings_button.click()
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    local_path = folder / "large.bin"
+    with local_path.open("wb") as output:
+        output.truncate(33 * 1024 * 1024)
+    controller._queue_ingestion(str(local_path))
+
+    job = controller._queued_uploads[str(local_path)]
+    assert not job.is_parallel
+    assert job.parallel_upload_threads == 1
+    assert job.chunk_size_mib == controller._single_chunk_mib
+    assert controller._active_uploads[str(local_path)].worker.parallel_upload_threads == 1
 
 
 def test_automatic_write_sizes_become_manual_on_disable(controller):
@@ -853,6 +901,7 @@ def test_restart_uses_last_effective_upload_settings(controller, automatic):
     if config.maximum_upload_workers_limit() < 3:
         pytest.skip("Needs at least three local CPUs")
 
+    controller.window.parallel_upload_threads_input.setValue(2)
     if automatic:
         controller.window.automatic_mode_radio.setChecked(True)
     else:
@@ -881,6 +930,7 @@ def test_restart_uses_last_effective_upload_settings(controller, automatic):
         saved.single_write_chunk_size_mib,
         saved.parallel_write_chunk_size_mib,
     ) == (3, 16, 8)
+    assert saved.parallel_upload_threads == 2
 
     restarted = TrayController(controller.app)
     try:
@@ -888,6 +938,7 @@ def test_restart_uses_last_effective_upload_settings(controller, automatic):
         assert (restarted._single_chunk_mib, restarted._parallel_chunk_mib) == (16, 8)
         assert restarted.window.maximum_upload_workers_input.value() == 3
         assert restarted.window.get_write_chunk_settings() == (16, 8)
+        assert restarted.window.get_parallel_upload_threads() == 2
         restarted._complete_login(controller.environment)
         assert restarted._effective_upload_workers == 3
         assert restarted.window.maximum_upload_workers_input.value() == 3
