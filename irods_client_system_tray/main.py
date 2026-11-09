@@ -20,6 +20,7 @@ FOREGROUND_ENV_VAR = "IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND"
 HELP_OPTIONS = ("-h", "--help")
 THEME_TEMPLATE_PATH = files("irods_client_system_tray").joinpath("theme.qss.template")
 APP_ICON_RESOURCE = files("irods_client_system_tray").joinpath("app_icon.png")
+APP_NAME = "iRODS Ingest"
 
 THEME_TOKENS = {
     "dark": {
@@ -140,6 +141,30 @@ def _show_in_macos_dock(icon_data: bytes) -> None:
     application.setApplicationIconImage_(ns_image)
 
 
+def _set_macos_process_name() -> None:
+    """Override the Python interpreter name before Qt creates its native menus."""
+
+    if sys.platform != "darwin":
+        return
+
+    from Foundation import NSProcessInfo
+
+    NSProcessInfo.processInfo().setProcessName_(APP_NAME)
+
+
+def _set_macos_menu_bar_name() -> None:
+    """Name the native application menu once the first window has been shown."""
+
+    if sys.platform != "darwin":
+        return
+
+    from AppKit import NSApplication
+
+    menu = NSApplication.sharedApplication().mainMenu()
+    if menu is not None and menu.numberOfItems():
+        menu.itemAtIndex_(0).setTitle_(APP_NAME)
+
+
 def _set_application_icon(app: QApplication) -> None:
     """Use the bundled circular wordmark for app windows and the macOS Dock."""
 
@@ -237,8 +262,10 @@ def main() -> int:
     if _run_in_background_if_needed(foreground, qt_args):
         return 0
 
+    _set_macos_process_name()
     app = QApplication(qt_args)
-    app.setApplicationName("iRODS Ingest")
+    app.setApplicationName(APP_NAME)
+    app.setApplicationDisplayName(APP_NAME)
     app.setOrganizationName("iRODS")
     app.setStyle("Fusion")
     _set_application_icon(app)
@@ -250,6 +277,8 @@ def main() -> int:
 
     controller = TrayController(app)
     QTimer.singleShot(0, lambda: controller.prompt_login(show_window_on_success=True))
+    if sys.platform == "darwin":
+        QTimer.singleShot(0, _set_macos_menu_bar_name)
 
     signal.signal(signal.SIGINT, lambda *_args: app.quit())
 

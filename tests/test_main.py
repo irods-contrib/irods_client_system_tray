@@ -65,6 +65,58 @@ def test_show_in_macos_dock_sets_regular_policy_and_icon(monkeypatch):
     assert icons == [("image", b"icon")]
 
 
+def test_macos_process_name_uses_the_app_name(monkeypatch):
+    names = []
+    process = types.SimpleNamespace(setProcessName_=names.append)
+    foundation = types.SimpleNamespace(
+        NSProcessInfo=types.SimpleNamespace(processInfo=lambda: process)
+    )
+    monkeypatch.setattr(main.sys, "platform", "darwin")
+    monkeypatch.setitem(sys.modules, "Foundation", foundation)
+
+    main._set_macos_process_name()
+
+    assert names == ["iRODS Ingest"]
+
+
+def test_macos_app_menu_title_uses_the_app_name(monkeypatch):
+    titles = []
+    menu = types.SimpleNamespace(
+        numberOfItems=lambda: 1,
+        itemAtIndex_=lambda index: types.SimpleNamespace(
+            setTitle_=lambda title: titles.append((index, title))
+        ),
+    )
+    application = types.SimpleNamespace(mainMenu=lambda: menu)
+    monkeypatch.setattr(main.sys, "platform", "darwin")
+    monkeypatch.setitem(
+        sys.modules, "AppKit",
+        types.SimpleNamespace(NSApplication=types.SimpleNamespace(sharedApplication=lambda: application)),
+    )
+
+    main._set_macos_menu_bar_name()
+
+    assert titles == [(0, "iRODS Ingest")]
+
+
+def test_macos_process_name_is_set_before_qapplication(monkeypatch):
+    events = []
+    monkeypatch.setattr(main.sys, "platform", "darwin")
+    monkeypatch.setattr(main.sys, "argv", ["app", "--foreground"])
+    monkeypatch.setattr(main, "_run_in_background_if_needed", lambda *_args: False)
+    monkeypatch.setattr(main, "_set_macos_process_name", lambda: events.append("name"))
+
+    def construct_app(_args):
+        events.append("qt")
+        raise RuntimeError("stop before creating a real Qt application")
+
+    monkeypatch.setattr(main, "QApplication", construct_app)
+    with pytest.raises(RuntimeError, match="stop before creating"):
+        main.main()
+
+    assert events == ["name", "qt"]
+
+
 @pytest.mark.parametrize("platform", ["linux", "win32"])
 def test_main_sets_application_icon_after_creating_qapplication(monkeypatch, platform):
     events = []
@@ -76,6 +128,9 @@ def test_main_sets_application_icon_after_creating_qapplication(monkeypatch, pla
 
         def setApplicationName(self, _name):
             pass
+
+        def setApplicationDisplayName(self, name):
+            assert name == "iRODS Ingest"
 
         def setOrganizationName(self, _name):
             pass
@@ -380,6 +435,9 @@ def test_main_explains_when_no_system_tray_is_available(monkeypatch):
 
         def setApplicationName(self, _name):
             pass
+
+        def setApplicationDisplayName(self, name):
+            assert name == "iRODS Ingest"
 
         def setOrganizationName(self, _name):
             pass
