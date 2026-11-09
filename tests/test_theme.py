@@ -35,3 +35,9 @@ def test_monitored_folders_frame_and_list_have_square_corners():
 
     assert "QFrame#directoryCard {\n    border: 1px solid $border;\n    border-radius: 0;" in template
     assert "QListWidget#monitoredFoldersList::item {\n    border-radius: 0;" in template
+
+
+def test_log_list_and_selected_items_have_square_corners():
+    template = THEME_TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    assert "QListWidget#activityList::item {\n    border-radius: 0;" in template

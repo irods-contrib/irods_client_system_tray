@@ -1316,9 +1316,6 @@ class SettingsWindow(QWidget):
         failed_uploads_layout.addWidget(self.failed_uploads_list)
         failed_uploads_layout.addLayout(failed_uploads_button_row)
 
-        activity_title = QLabel("Recent activity")
-        activity_title.setObjectName("activityTitle")
-
         self.activity_list = QListWidget()
         self.activity_list.setObjectName("activityList")
         self.load_activity()
@@ -1330,7 +1327,6 @@ class SettingsWindow(QWidget):
         activity_layout = QVBoxLayout(activity_tab)
         activity_layout.setContentsMargins(0, 0, 0, 0)
         activity_layout.setSpacing(14)
-        activity_layout.addWidget(activity_title)
         activity_layout.addWidget(self.activity_list, 1)
 
         throughput_tab = QWidget()
@@ -1416,8 +1412,8 @@ class SettingsWindow(QWidget):
 
         self.tabs.addTab(overview_tab, "Overview")
         self.tabs.addTab(settings_tab, "Settings")
-        self.tabs.addTab(activity_tab, "Activity")
         self.tabs.addTab(throughput_tab, "Throughput")
+        self.tabs.addTab(activity_tab, "Log")
         self.tabs.addTab(about_tab, "About")
         self.tabs.currentChanged.connect(self._scroll_activity_when_selected)
 
@@ -1668,7 +1664,7 @@ class SettingsWindow(QWidget):
             self.activity_list.addItem(entry)
 
     def _scroll_activity_when_selected(self, index: int) -> None:
-        if self.tabs.tabText(index) == "Activity":
+        if self.tabs.tabText(index) == "Log":
             QTimer.singleShot(0, self.activity_list.scrollToBottom)
 
     def _show_update_result(self, newer_version: str | None) -> None:
