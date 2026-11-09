@@ -1136,7 +1136,7 @@ class SettingsWindow(QWidget):
         self.memory_cap_unit_label = QLabel("MiB")
         self.single_write_chunk_input = QComboBox()
         self.parallel_write_chunk_input = QComboBox()
-        for size in WRITE_CHUNK_SIZES_MIB:
+        for size in reversed(WRITE_CHUNK_SIZES_MIB):
             for control in (self.single_write_chunk_input, self.parallel_write_chunk_input):
                 control.addItem(f"{size} MiB", size)
         self.single_write_chunk_input.setCurrentIndex(
@@ -1166,12 +1166,13 @@ class SettingsWindow(QWidget):
         self.memory_cap_description.setWordWrap(True)
         cap_row = QHBoxLayout()
         cap_row.setSpacing(6)
+        self.memory_cap_label = QLabel("Memory cap")
+        cap_row.addWidget(self.memory_cap_label)
         cap_row.addWidget(self.memory_cap_input)
         cap_row.addWidget(self.memory_cap_unit_label)
         cap_row.addStretch(1)
         automatic_layout.addWidget(self.automatic_mode_radio)
         automatic_layout.addWidget(self.memory_cap_description)
-        automatic_layout.addWidget(QLabel("Memory cap"))
         automatic_layout.addLayout(cap_row)
         automatic_layout.addStretch(1)
 
@@ -1185,8 +1186,8 @@ class SettingsWindow(QWidget):
         manual_form_layout.setSpacing(10)
         manual_form_layout.addRow("Upload workers", self.maximum_upload_workers_input)
         manual_form_layout.addRow("Threads per upload", self.parallel_upload_threads_input)
-        manual_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
         manual_form_layout.addRow("Parallel write", self.parallel_write_chunk_input)
+        manual_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
         manual_layout.addWidget(self.manual_mode_radio)
         manual_layout.addLayout(manual_form_layout)
         manual_layout.addStretch(1)
