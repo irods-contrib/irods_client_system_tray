@@ -656,13 +656,31 @@ def test_activity_log_is_persisted_newest_last_and_capped(settings_window):
 
 def test_recent_activity_lives_in_its_own_tab(settings_window):
     assert [settings_window.tabs.tabText(index) for index in range(settings_window.tabs.count())] == [
-        "Overview", "Settings", "Activity"
+        "Overview", "Settings", "Activity", "About"
     ]
     assert settings_window.tabs.widget(0).findChild(QListWidget, "activityList") is None
     assert settings_window.tabs.widget(2).findChild(QListWidget, "activityList") is (
         settings_window.activity_list
     )
     assert settings_window.activity_list.maximumHeight() > 140
+
+
+def test_about_tab_describes_the_app_and_shows_update_status(settings_window):
+    about_tab = settings_window.tabs.widget(3)
+    assert about_tab.findChild(QFrame, "aboutCard") is not None
+    labels = [label.text() for label in about_tab.findChildren(QLabel)]
+    assert any("hands-free ingest of instrument data" in text for text in labels)
+    assert any("Version:" in text and "BSD-3-Clause" in text for text in labels)
+    assert any("github.com/irods-contrib" in text for text in labels)
+
+    status = settings_window.update_status_label
+    settings_window._show_update_result("0.3.0")
+    assert "Update available: version 0.3.0" in status.text()
+    assert "pypi.org/project/irods-client-system-tray/0.3.0/" in status.text()
+    settings_window._show_update_result(None)
+    assert status.text() == "You're up to date."
+    settings_window._show_update_failure()
+    assert "Unable to check" in status.text()
 
 
 def test_activity_log_loads_existing_entries(activity_log):

@@ -27,6 +27,8 @@ import pytest
 # Must be set before any QApplication is constructed. The widget tests never render to
 # a real display, so this keeps them runnable headlessly.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# All UI tests run offline; the update checker itself is tested with fake replies.
+os.environ.setdefault("IRODS_CLIENT_SYSTEM_TRAY_DISABLE_UPDATE_CHECK", "1")
 
 from irods_client_system_tray.config import IRODSEnvironment
 

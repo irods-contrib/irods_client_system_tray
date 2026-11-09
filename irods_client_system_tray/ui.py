@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import re
 import socket
+from html import escape
+from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from .activity_log import ActivityLog
+from .update_check import PACKAGE_NAME, UpdateChecker, installed_version
 from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
     DEFAULT_MAXIMUM_UPLOAD_WORKERS,
@@ -1229,9 +1232,66 @@ class SettingsWindow(QWidget):
         settings_layout.addLayout(settings_button_row)
         settings_layout.addStretch(1)
 
+        about_tab = QWidget()
+        about_layout = QVBoxLayout(about_tab)
+        about_layout.setContentsMargins(0, 0, 0, 0)
+        about_card = QFrame()
+        about_card.setFrameShape(QFrame.Shape.StyledPanel)
+        about_card.setObjectName("aboutCard")
+        about_card_layout = QVBoxLayout(about_card)
+        about_card_layout.setContentsMargins(16, 16, 16, 16)
+        about_card_layout.setSpacing(12)
+
+        about_title = QLabel("iRODS Ingest from the System Tray")
+        about_title.setObjectName("directoryCardTitle")
+        about_description = QLabel(
+            "Monitor local folders and automatically upload incoming files to iRODS "
+            "collections. Designed for hands-free ingest of instrument data without "
+            "filling the client machine's storage."
+        )
+        about_description.setWordWrap(True)
+        self.about_version = installed_version()
+        try:
+            package_metadata = metadata(PACKAGE_NAME)
+        except PackageNotFoundError:
+            package_metadata = {}
+        about_details = QLabel(
+            f"Version: {escape(self.about_version or 'Unknown')}<br>"
+            f"Publisher: {escape(package_metadata.get('Author-email', 'iRODS Consortium'))}<br>"
+            f"License: {escape(package_metadata.get('License-Expression', 'BSD-3-Clause'))}"
+        )
+        about_details.setTextFormat(Qt.TextFormat.RichText)
+        about_links = QLabel(
+            '<a href="https://github.com/irods-contrib/irods_client_system_tray">'
+            'Source code</a> · '
+            '<a href="https://github.com/irods-contrib/irods_client_system_tray/issues">'
+            'Report an issue</a>'
+        )
+        about_links.setOpenExternalLinks(True)
+        self.update_status_label = QLabel("Update checks start shortly after launch.")
+        self.update_status_label.setObjectName("updateStatusLabel")
+        self.update_status_label.setWordWrap(True)
+        self.update_status_label.setOpenExternalLinks(True)
+        about_card_layout.addWidget(about_title)
+        about_card_layout.addWidget(about_description)
+        about_card_layout.addWidget(about_details)
+        about_card_layout.addWidget(about_links)
+        about_card_layout.addWidget(self.update_status_label)
+        about_layout.addWidget(about_card)
+        about_layout.addStretch(1)
+
+        self.update_checker = None
+        if self.about_version is not None:
+            self.update_checker = UpdateChecker(self.about_version, self)
+            self.update_checker.checked.connect(self._show_update_result)
+            self.update_checker.failed.connect(self._show_update_failure)
+        else:
+            self.update_status_label.setText("Installed version unavailable; cannot check for updates.")
+
         self.tabs.addTab(overview_tab, "Overview")
         self.tabs.addTab(settings_tab, "Settings")
         self.tabs.addTab(activity_tab, "Activity")
+        self.tabs.addTab(about_tab, "About")
         self.tabs.currentChanged.connect(self._scroll_activity_when_selected)
 
         layout = QVBoxLayout(self)
@@ -1441,6 +1501,20 @@ class SettingsWindow(QWidget):
     def _scroll_activity_when_selected(self, index: int) -> None:
         if self.tabs.tabText(index) == "Activity":
             QTimer.singleShot(0, self.activity_list.scrollToBottom)
+
+    def _show_update_result(self, newer_version: str | None) -> None:
+        if newer_version is None:
+            self.update_status_label.setText("You're up to date.")
+            return
+        self.update_status_label.setText(
+            f"Update available: version {escape(newer_version)} "
+            f"(installed: {escape(self.about_version or 'Unknown')}). "
+            f'<a href="https://pypi.org/project/{PACKAGE_NAME}/{escape(newer_version)}/">'
+            "View on PyPI</a>"
+        )
+
+    def _show_update_failure(self) -> None:
+        self.update_status_label.setText("Unable to check for updates right now.")
 
     def showEvent(self, event) -> None:  # noqa: N802
         """Scroll to the newest activity after the window first appears."""

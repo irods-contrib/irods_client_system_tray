@@ -93,6 +93,12 @@ The Queue line shows remaining bytes and estimates time from active and waiting
 files at the recent throughput. It shows `ETA --` until a usable speed is available.
 Throughput drops to zero after five seconds without transfer activity.
 
+The About tab summarizes the app and shows the installed package version, publisher,
+license, and project links. It checks PyPI for newer compatible stable releases shortly
+after launch and daily thereafter without blocking uploads. When one is available, it
+shows the version and a link to PyPI; it never upgrades the app automatically.
+Set `IRODS_CLIENT_SYSTEM_TRAY_DISABLE_UPDATE_CHECK=1` to disable network checks.
+
 ## Testing
 
 Run the tests:

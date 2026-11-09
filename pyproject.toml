@@ -16,6 +16,8 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
+    "packaging>=24.0",
+    "tomli>=2.0; python_version < '3.11'",
     "pyside6>=6.7",
     "pytest>=8.0",
     "pytest-cov>=7.0",

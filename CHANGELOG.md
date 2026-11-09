@@ -22,6 +22,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Combine Automatic worker and write-size controls, with a configurable memory cap.
 - Restore the last effective worker count and write sizes after restarting in Automatic mode.
 - Enable Automatic upload settings by default on first launch.
+- Add an About tab and asynchronous daily PyPI update checks.
 - Show remaining upload bytes and a compact ETA; zero idle throughput after five seconds.
 - Show intermediate upload progress as file data is transferred.
 - Include underlying errors and reported byte counts when a parallel upload fails.
