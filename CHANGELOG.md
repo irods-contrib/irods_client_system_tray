@@ -35,6 +35,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Rename the post-upload recycle mode to trash, alongside move and delete.
 - Reject move-after-upload settings without a destination.
 - Add launcher help and foreground options; show a branded macOS Dock icon.
+- Use the iRODS Ingest name in the macOS application menu.
 - Persist activity history and expand automated test coverage.
 
 ## [0.1.1] - 2026-09-16
