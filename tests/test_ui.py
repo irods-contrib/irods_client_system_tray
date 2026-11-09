@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QFrame, QLabel, QPushButton, QSpinBox
+from PySide6.QtWidgets import QDialog, QFrame, QLabel, QListWidget, QPushButton, QSpinBox
 
 from irods_client_system_tray.activity_log import ActivityLog
 import irods_client_system_tray.config as config_module
@@ -654,6 +654,17 @@ def test_activity_log_is_persisted_newest_last_and_capped(settings_window):
     assert " - event 54" in settings_window.activity_log.path.read_text(encoding="utf-8")
 
 
+def test_recent_activity_lives_in_its_own_tab(settings_window):
+    assert [settings_window.tabs.tabText(index) for index in range(settings_window.tabs.count())] == [
+        "Overview", "Settings", "Activity"
+    ]
+    assert settings_window.tabs.widget(0).findChild(QListWidget, "activityList") is None
+    assert settings_window.tabs.widget(2).findChild(QListWidget, "activityList") is (
+        settings_window.activity_list
+    )
+    assert settings_window.activity_list.maximumHeight() > 140
+
+
 def test_activity_log_loads_existing_entries(activity_log):
     # Checks opening a new settings window restores recent activity from the log file
     # instead of relying on a list held by the previous widget instance.
@@ -674,6 +685,7 @@ def test_recent_activity_scrolls_to_bottom_after_first_show(activity_log, qapp):
 
     try:
         window.show()
+        window.tabs.setCurrentIndex(2)
         qapp.processEvents()
 
         scrollbar = window.activity_list.verticalScrollBar()
@@ -685,6 +697,26 @@ def test_recent_activity_scrolls_to_bottom_after_first_show(activity_log, qapp):
         window.show()
         qapp.processEvents()
         assert scrollbar.value() == 0
+    finally:
+        window.hide()
+
+
+def test_activity_tab_scrolls_to_newest_on_selection(activity_log, qapp):
+    for index in range(55):
+        activity_log.append(f"event {index}")
+    window = SettingsWindow(activity_log)
+
+    try:
+        window.show()
+        window.tabs.setCurrentIndex(2)
+        qapp.processEvents()
+        scrollbar = window.activity_list.verticalScrollBar()
+        scrollbar.setValue(0)
+        window.tabs.setCurrentIndex(0)
+        window.tabs.setCurrentIndex(2)
+        qapp.processEvents()
+        assert scrollbar.maximum() > 0
+        assert scrollbar.value() == scrollbar.maximum()
     finally:
         window.hide()
 
