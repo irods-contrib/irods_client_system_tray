@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtCharts import QChartView
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QFrame, QLabel, QListWidget, QPushButton, QSpinBox
 
@@ -34,6 +35,7 @@ from irods_client_system_tray.ui import (
     SettingsWindow,
     ZoneRootLineEdit,
 )
+from irods_client_system_tray.throughput_history import ThroughputPoint
 import irods_client_system_tray.ui as ui_module
 
 pytestmark = pytest.mark.usefixtures("qapp")
@@ -659,7 +661,7 @@ def test_activity_log_is_persisted_newest_last_and_capped(settings_window):
 
 def test_recent_activity_lives_in_its_own_tab(settings_window):
     assert [settings_window.tabs.tabText(index) for index in range(settings_window.tabs.count())] == [
-        "Overview", "Settings", "Activity", "About"
+        "Overview", "Settings", "Activity", "Throughput", "About"
     ]
     assert settings_window.tabs.widget(0).findChild(QListWidget, "activityList") is None
     assert settings_window.tabs.widget(2).findChild(QListWidget, "activityList") is (
@@ -668,8 +670,25 @@ def test_recent_activity_lives_in_its_own_tab(settings_window):
     assert settings_window.activity_list.maximumHeight() > 140
 
 
+def test_throughput_tab_plots_rolling_mib_per_second(settings_window):
+    chart = settings_window.tabs.widget(3).findChild(QChartView, "throughputChart")
+    assert chart is settings_window.throughput_chart
+
+    settings_window.set_throughput_history(
+        (ThroughputPoint(1000, 2.0), ThroughputPoint(1001, 0.0)), 1001,
+    )
+    points = chart.series.points()
+    assert [(point.x(), point.y()) for point in points] == [
+        (1000_000.0, 2.0), (1001_000.0, 0.0),
+    ]
+    assert chart.rate_axis.titleText() == "MiB/s"
+    assert chart.rate_axis.max() >= 2.0
+    assert chart.time_axis.min().toMSecsSinceEpoch() == 401_000
+    assert chart.time_axis.max().toMSecsSinceEpoch() == 1001_000
+
+
 def test_about_tab_describes_the_app_and_shows_update_status(settings_window):
-    about_tab = settings_window.tabs.widget(3)
+    about_tab = settings_window.tabs.widget(4)
     assert about_tab.findChild(QFrame, "aboutCard") is not None
     labels = [label.text() for label in about_tab.findChildren(QLabel)]
     assert any("hands-free ingest of instrument data" in text for text in labels)

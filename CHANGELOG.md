@@ -26,6 +26,9 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Save Settings automatically after a quiet period and show a temporary confirmation.
 - Add an About tab and asynchronous daily PyPI update checks.
 - Show remaining upload bytes and a compact ETA; zero idle throughput after five seconds.
+- Graph ten minutes of session-only aggregate throughput with idle periods and smoothing.
+- Update header throughput and ETA from live upload samples during ongoing transfers.
+- Smooth the displayed ETA over five seconds without delaying queue or idle resets.
 - Show intermediate upload progress as file data is transferred.
 - Include underlying errors and reported byte counts when a parallel upload fails.
 - Fix parallel uploads under Python 3.15 when Qt leaves a lazy executor unresolved.

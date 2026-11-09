@@ -5,12 +5,16 @@ from __future__ import annotations
 import logging
 import re
 import socket
+import time
 from html import escape
 from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QColor
+from PySide6.QtCharts import QChart, QChartView, QDateTimeAxis, QLineSeries, QValueAxis
+from PySide6.QtCore import (
+    QDateTime, QObject, QPointF, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot,
+)
+from PySide6.QtGui import QColor, QGuiApplication, QPainter
 from PySide6.QtWidgets import (
     QCheckBox,
     QButtonGroup,
@@ -37,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from .activity_log import ActivityLog
+from .throughput_history import ThroughputPoint
 from .update_check import PACKAGE_NAME, UpdateChecker, installed_version
 from .config import (
     DEFAULT_POST_UPLOAD_ACTION,
@@ -1022,6 +1027,52 @@ class AddDirectoryDialog(QDialog):
         self.regex_summary_label.setText(f"{pattern_count} {pattern_label} configured")
 
 
+class ThroughputChart(QChartView):
+    """A rolling, aggregate 10-minute upload-rate chart."""
+
+    def __init__(self) -> None:
+        chart = QChart()
+        super().__init__(chart)
+        self.setObjectName("throughputChart")
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        chart.setTitle("Aggregate uploads · last 10 minutes")
+        chart.legend().hide()
+        self.series = QLineSeries()
+        chart.addSeries(self.series)
+        self.time_axis = QDateTimeAxis()
+        self.time_axis.setFormat("HH:mm")
+        self.time_axis.setTickCount(5)
+        self.rate_axis = QValueAxis()
+        self.rate_axis.setTitleText("MiB/s")
+        self.rate_axis.setLabelFormat("%.1f")
+        self.rate_axis.setTickCount(5)
+        self.rate_axis.setRange(0, 1)
+        chart.addAxis(self.time_axis, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(self.rate_axis, Qt.AlignmentFlag.AlignLeft)
+        self.series.attachAxis(self.time_axis)
+        self.series.attachAxis(self.rate_axis)
+        self._apply_theme()
+        QGuiApplication.styleHints().colorSchemeChanged.connect(self._apply_theme)
+        self.set_samples((), time.time())
+
+    def _apply_theme(self, *_args) -> None:
+        dark = QGuiApplication.styleHints().colorScheme() == Qt.ColorScheme.Dark
+        self.chart().setTheme(QChart.ChartThemeDark if dark else QChart.ChartThemeLight)
+        self.series.setColor(QColor("#00BDAC"))
+
+    def set_samples(self, samples: tuple[ThroughputPoint, ...], now: float) -> None:
+        self.series.replace([
+            QPointF(sample.timestamp * 1000, sample.mib_per_second) for sample in samples
+        ])
+        self.time_axis.setRange(
+            QDateTime.fromMSecsSinceEpoch(int((now - 600) * 1000)),
+            QDateTime.fromMSecsSinceEpoch(int(now * 1000)),
+        )
+        self.rate_axis.setRange(
+            0, max(1.0, max((sample.mib_per_second for sample in samples), default=0) * 1.2)
+        )
+
+
 class SettingsWindow(QWidget):
     """Provide the configuration window for monitored folders and recent activity.
 
@@ -1282,6 +1333,12 @@ class SettingsWindow(QWidget):
         activity_layout.addWidget(activity_title)
         activity_layout.addWidget(self.activity_list, 1)
 
+        throughput_tab = QWidget()
+        throughput_layout = QVBoxLayout(throughput_tab)
+        throughput_layout.setContentsMargins(0, 0, 0, 0)
+        self.throughput_chart = ThroughputChart()
+        throughput_layout.addWidget(self.throughput_chart)
+
         settings_tab = QWidget()
         settings_tab_layout = QVBoxLayout(settings_tab)
         settings_tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -1360,6 +1417,7 @@ class SettingsWindow(QWidget):
         self.tabs.addTab(overview_tab, "Overview")
         self.tabs.addTab(settings_tab, "Settings")
         self.tabs.addTab(activity_tab, "Activity")
+        self.tabs.addTab(throughput_tab, "Throughput")
         self.tabs.addTab(about_tab, "About")
         self.tabs.currentChanged.connect(self._scroll_activity_when_selected)
 
@@ -1559,6 +1617,9 @@ class SettingsWindow(QWidget):
         self.upload_queue_label.setText(f"Queue: {queued} ({remaining}, ETA {eta})")
         rate = "--" if throughput is None else _format_throughput(throughput)
         self.upload_throughput_label.setText(f"Throughput: {rate}")
+
+    def set_throughput_history(self, samples: tuple[ThroughputPoint, ...], now: float) -> None:
+        self.throughput_chart.set_samples(samples, now)
 
     def _update_worker_mode_state(self, *_args) -> None:
         automatic = self.automatic_mode_radio.isChecked()
