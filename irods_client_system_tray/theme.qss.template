@@ -62,8 +62,7 @@ QFrame#manualModeCard QComboBox:disabled {
     background: $window_bg;
     color: $muted;
 }
-QLabel#directoryCardTitle,
-QLabel#activityTitle {
+QLabel#directoryCardTitle {
     color: $text;
     font-size: $font_lg;
     font-weight: 600;
@@ -99,6 +98,10 @@ QWidget#settingsWindow QListWidget::item:selected {
 }
 QWidget#settingsWindow QListWidget#monitoredFoldersList,
 QWidget#settingsWindow QListWidget#monitoredFoldersList::item {
+    border-radius: 0;
+}
+QWidget#settingsWindow QListWidget#activityList,
+QWidget#settingsWindow QListWidget#activityList::item {
     border-radius: 0;
 }
 

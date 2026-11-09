@@ -659,19 +659,24 @@ def test_activity_log_is_persisted_newest_last_and_capped(settings_window):
     assert " - event 54" in settings_window.activity_log.path.read_text(encoding="utf-8")
 
 
-def test_recent_activity_lives_in_its_own_tab(settings_window):
+def test_log_tab_contains_a_full_height_list_without_a_subtitle(settings_window):
     assert [settings_window.tabs.tabText(index) for index in range(settings_window.tabs.count())] == [
-        "Overview", "Settings", "Activity", "Throughput", "About"
+        "Overview", "Settings", "Throughput", "Log", "About"
     ]
     assert settings_window.tabs.widget(0).findChild(QListWidget, "activityList") is None
-    assert settings_window.tabs.widget(2).findChild(QListWidget, "activityList") is (
+    assert settings_window.tabs.widget(3).findChild(QListWidget, "activityList") is (
         settings_window.activity_list
+    )
+    assert settings_window.tabs.widget(3).findChild(QLabel, "activityTitle") is None
+    assert not any(
+        label.text() == "Recent activity"
+        for label in settings_window.tabs.widget(3).findChildren(QLabel)
     )
     assert settings_window.activity_list.maximumHeight() > 140
 
 
 def test_throughput_tab_plots_rolling_mib_per_second(settings_window):
-    chart = settings_window.tabs.widget(3).findChild(QChartView, "throughputChart")
+    chart = settings_window.tabs.widget(2).findChild(QChartView, "throughputChart")
     assert chart is settings_window.throughput_chart
 
     settings_window.set_throughput_history(
@@ -725,7 +730,7 @@ def test_recent_activity_scrolls_to_bottom_after_first_show(activity_log, qapp):
 
     try:
         window.show()
-        window.tabs.setCurrentIndex(2)
+        window.tabs.setCurrentIndex(3)
         qapp.processEvents()
 
         scrollbar = window.activity_list.verticalScrollBar()
@@ -748,12 +753,12 @@ def test_activity_tab_scrolls_to_newest_on_selection(activity_log, qapp):
 
     try:
         window.show()
-        window.tabs.setCurrentIndex(2)
+        window.tabs.setCurrentIndex(3)
         qapp.processEvents()
         scrollbar = window.activity_list.verticalScrollBar()
         scrollbar.setValue(0)
         window.tabs.setCurrentIndex(0)
-        window.tabs.setCurrentIndex(2)
+        window.tabs.setCurrentIndex(3)
         qapp.processEvents()
         assert scrollbar.maximum() > 0
         assert scrollbar.value() == scrollbar.maximum()
