@@ -20,6 +20,7 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 - Add automatic worker tuning and queue/throughput statistics in the window header.
 - Tune single and parallel PUT write sizes separately within a bounded memory budget.
 - Combine Automatic worker and write-size controls, with a configurable memory cap.
+- Restore the last effective worker count and write sizes after restarting in Automatic mode.
 - Show remaining upload bytes and a compact ETA; zero idle throughput after five seconds.
 - Show intermediate upload progress as file data is transferred.
 - Include underlying errors and reported byte counts when a parallel upload fails.

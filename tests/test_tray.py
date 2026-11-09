@@ -775,7 +775,7 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
     ) == (8, 8)
     window.save_settings_button.click()
     saved = controller.config_store.load()
-    assert (saved.single_write_chunk_size_mib, saved.parallel_write_chunk_size_mib) == (4, 16)
+    assert (saved.single_write_chunk_size_mib, saved.parallel_write_chunk_size_mib) == (8, 8)
     assert (
         window.single_write_chunk_input.currentData(),
         window.parallel_write_chunk_input.currentData(),
@@ -787,6 +787,75 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
     assert (controller._single_chunk_mib, controller._parallel_chunk_mib) == (8, 8)
     saved = controller.config_store.load()
     assert (saved.single_write_chunk_size_mib, saved.parallel_write_chunk_size_mib) == (8, 8)
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+def test_restart_uses_last_effective_upload_settings(controller, automatic):
+    from irods_client_system_tray.tray import TrayController
+
+    if config.maximum_upload_workers_limit() < 3:
+        pytest.skip("Needs at least three local CPUs")
+
+    if automatic:
+        controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    else:
+        controller.window.maximum_upload_workers_input.setValue(3)
+        controller.window.single_write_chunk_input.setCurrentIndex(
+            controller.window.single_write_chunk_input.findData(16)
+        )
+        controller.window.parallel_write_chunk_input.setCurrentIndex(
+            controller.window.parallel_write_chunk_input.findData(8)
+        )
+    controller.window.save_settings_button.click()
+
+    if automatic:
+        controller._auto_workers.current = 3
+        controller._effective_upload_workers = 3
+        controller._chunk_tuners[False].current = 16
+        controller._chunk_tuners[True].current = 8
+        controller._single_chunk_mib = 16
+        controller._configure_parallel_chunk_size(8)
+
+    controller.shutdown()
+    saved = controller.config_store.load()
+    assert saved.automatic_upload_settings is automatic
+    assert (
+        saved.maximum_upload_workers,
+        saved.single_write_chunk_size_mib,
+        saved.parallel_write_chunk_size_mib,
+    ) == (3, 16, 8)
+
+    restarted = TrayController(controller.app)
+    try:
+        assert restarted._effective_upload_workers == 3
+        assert (restarted._single_chunk_mib, restarted._parallel_chunk_mib) == (16, 8)
+        assert restarted.window.maximum_upload_workers_input.value() == 3
+        assert restarted.window.get_write_chunk_settings() == (16, 8)
+        restarted._complete_login(controller.environment)
+        assert restarted._effective_upload_workers == 3
+        assert restarted.window.maximum_upload_workers_input.value() == 3
+    finally:
+        restarted.shutdown()
+
+
+def test_restart_does_not_save_unapplied_parallel_trial(controller):
+    from irods_client_system_tray.tray import TrayController
+
+    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.save_settings_button.click()
+    controller._chunk_tuners[True].current = 8
+    controller._queue_parallel_chunk_change(8)
+    assert controller._parallel_chunk_mib == 4
+
+    controller.shutdown()
+    assert controller.config_store.load().parallel_write_chunk_size_mib == 4
+
+    restarted = TrayController(controller.app)
+    try:
+        assert restarted._parallel_chunk_mib == 4
+        assert restarted._pending_parallel_chunk_mib is None
+    finally:
+        restarted.shutdown()
 
 
 def test_single_chunk_trial_changes_the_next_dispatched_job(
