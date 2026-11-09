@@ -52,7 +52,7 @@ class AppConfig:
     maximum_upload_workers: int = field(
         default_factory=lambda: normalize_maximum_upload_workers(DEFAULT_MAXIMUM_UPLOAD_WORKERS)
     )
-    automatic_upload_settings: bool = False
+    automatic_upload_settings: bool = True
     memory_cap_mib: int = DEFAULT_MEMORY_CAP_MIB
     single_write_chunk_size_mib: int = DEFAULT_SINGLE_WRITE_CHUNK_MIB
     parallel_write_chunk_size_mib: int = DEFAULT_PARALLEL_WRITE_CHUNK_MIB
