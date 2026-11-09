@@ -43,6 +43,8 @@ from .config import (
     rezone_target_collection,
 )
 from .auto_workers import AutomaticUploadWorkers, TransferSample
+from .eta_smoothing import EtaSmoother
+from .throughput_history import ThroughputHistory
 from .auto_chunks import AutomaticChunkSize, CHUNK_SIZES_MIB
 from .irods_worker import IRODSUploadWorker
 from .monitor import MonitorManager
@@ -148,6 +150,12 @@ class TrayController(QObject):
         self._enforce_chunk_memory_budget()
         self._recent_transfers: deque[TransferSample] = deque(maxlen=8)
         self._recent_throughput: float | None = None
+        self._eta_smoother = EtaSmoother()
+        self._throughput_history = ThroughputHistory()
+        self._throughput_sample_timer = QTimer(self)
+        self._throughput_sample_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._throughput_sample_timer.timeout.connect(self._sample_throughput)
+        self._throughput_sample_timer.start(1000)
         self._last_transfer_activity_at: float | None = None
         self._throughput_idle_timer = QTimer(self)
         self._throughput_idle_timer.setSingleShot(True)
@@ -398,6 +406,7 @@ class TrayController(QObject):
 
         self.window.flush_pending_settings_save()
         self._is_shutting_down = True
+        self._throughput_sample_timer.stop()
         self._pending_initial_scans.clear()
         self._initial_scan_iterators.clear()
         self._scheduled_initial_scans.clear()
@@ -959,28 +968,42 @@ class TrayController(QObject):
     def _has_pending_uploads(self) -> bool:
         return any(job.status == "queued" for job in self._queued_uploads.values())
 
-    def _update_upload_summary(self) -> None:
+    def _update_upload_summary(self, *, sample_eta: bool = False) -> None:
         waiting = sum(job.status == "queued" for job in self._queued_uploads.values())
         throughput = self._current_throughput()
         remaining_bytes = self._remaining_upload_bytes()
+        raw_eta = self._estimated_time_remaining_seconds(remaining_bytes, throughput)
+        eta = self._eta_smoother.display(
+            raw_eta, remaining_bytes, time.monotonic(), sample=sample_eta,
+        )
         self.window.set_upload_summary(
             self._effective_upload_workers, len(self._active_uploads), waiting,
             throughput, remaining_bytes=remaining_bytes,
-            eta_seconds=self._estimated_time_remaining_seconds(remaining_bytes, throughput),
+            eta_seconds=eta,
         )
+
+    def _sample_throughput(self) -> None:
+        """Refresh both graph and header from actual progress each second."""
+
+        now = time.time()
+        self._throughput_history.sample(now, time.monotonic())
+        self.window.set_throughput_history(tuple(self._throughput_history.samples), now)
+        self._update_upload_summary(sample_eta=True)
 
     def _current_throughput(self) -> float | None:
         if (
-            self._recent_throughput is not None
-            and self._last_transfer_activity_at is not None
+            self._last_transfer_activity_at is not None
+            and (self._recent_throughput is not None or self._throughput_history.has_progress)
             and time.monotonic() - self._last_transfer_activity_at >= self.THROUGHPUT_IDLE_SECONDS
         ):
             return 0.0
+        if self._throughput_history.has_progress and self._throughput_history.samples:
+            return self._throughput_history.samples[-1].mib_per_second * 1024 * 1024
         return self._recent_throughput
 
     def _note_transfer_activity(self, when: float | None = None) -> None:
         self._last_transfer_activity_at = time.monotonic() if when is None else when
-        if self._recent_throughput is not None:
+        if self._recent_throughput is not None or self._throughput_history.has_progress:
             self._throughput_idle_timer.start(int(self.THROUGHPUT_IDLE_SECONDS * 1000) + 50)
 
     def _handle_throughput_idle(self) -> None:
@@ -1254,6 +1277,7 @@ class TrayController(QObject):
             previous_bytes = job.bytes_sent
             job.bytes_sent = min(job.size_bytes, max(0, bytes_sent))
             if job.bytes_sent > previous_bytes:
+                self._throughput_history.record_progress(job.bytes_sent - previous_bytes)
                 self._note_transfer_activity()
         self._update_upload_summary()
         if total_bytes <= 0:

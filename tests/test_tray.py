@@ -126,6 +126,58 @@ def test_settings_autosave_persists_edits_and_shows_confirmation(controller):
     assert not controller.window._settings_save_timer.isActive()
 
 
+def test_progress_history_aggregates_upload_bytes_in_throughput_tab(
+    controller, queued_uploads, tmp_path
+):
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    file = folder / "large.bin"
+    file.write_bytes(b"x" * (1024 * 1024))
+    controller._queue_ingestion(str(file))
+    controller._handle_upload_started(str(file), "/tempZone/home/alice/large.bin")
+    controller._handle_upload_progress(str(file), "", 512 * 1024, 1024 * 1024)
+    controller._handle_upload_progress(str(file), "", 512 * 1024, 1024 * 1024)
+    controller._handle_upload_progress(str(file), "", 1024 * 1024, 1024 * 1024)
+    controller._sample_throughput()
+
+    assert controller._throughput_history.samples[-1].mib_per_second == 1.0
+    assert controller.window.throughput_chart.series.count() == 1
+
+
+def test_header_throughput_and_eta_follow_live_samples_before_upload_finishes(
+    controller, queued_uploads, tmp_path
+):
+    folder = tmp_path / "watched"
+    folder.mkdir()
+    controller.config.monitored_directories = [
+        MonitoredDirectory(str(folder), "/tempZone/home/alice")
+    ]
+    file = folder / "large.bin"
+    with file.open("wb") as output:
+        output.truncate(4 * 1024 * 1024)
+    controller._queue_ingestion(str(file))
+    controller._handle_upload_started(str(file), "/tempZone/home/alice/large.bin")
+    controller._handle_upload_progress(str(file), "", 1024 * 1024, 4 * 1024 * 1024)
+
+    assert controller._recent_throughput is None  # No completed transfer yet.
+    controller._sample_throughput()
+    assert controller.window.upload_throughput_label.text() == "Throughput: 1.0 MiB/s"
+    assert "ETA 3s" in controller.window.upload_queue_label.text()
+
+    controller._throughput_history._last_sample_at = time.monotonic() - 1
+    controller._sample_throughput()
+    assert controller.window.upload_throughput_label.text() == "Throughput: 512.0 KiB/s"
+    assert "ETA 5s" in controller.window.upload_queue_label.text()
+
+    controller._last_transfer_activity_at = time.monotonic() - controller.THROUGHPUT_IDLE_SECONDS
+    controller._sample_throughput()
+    assert controller.window.upload_throughput_label.text() == "Throughput: 0 B/s"
+    assert "ETA --" in controller.window.upload_queue_label.text()
+
+
 @pytest.fixture
 def watched(controller, tmp_path):
     """A folder already registered with the controller, recursive, targeting home/alice."""
