@@ -756,6 +756,10 @@ def test_settings_tab_contains_upload_controls(settings_window):
     assert requested == [True]
 
 
+def test_monitored_folders_list_has_a_dedicated_square_corner_style(settings_window):
+    assert settings_window.directory_list.objectName() == "monitoredFoldersList"
+
+
 def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
     monkeypatch, activity_log
 ):

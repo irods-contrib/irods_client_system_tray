@@ -1160,6 +1160,7 @@ class SettingsWindow(QWidget):
         directory_title.setObjectName("directoryCardTitle")
 
         self.directory_list = QListWidget()
+        self.directory_list.setObjectName("monitoredFoldersList")
         self.directory_list.currentItemChanged.connect(self._update_remove_button_state)
 
         button_row = QHBoxLayout()

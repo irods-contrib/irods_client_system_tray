@@ -28,3 +28,10 @@ def test_stylesheet_builds_for_every_theme(theme, qapp):
     rendered = Template(THEME_TEMPLATE_PATH.read_text()).substitute(substitutions)
 
     assert "$" not in rendered
+
+
+def test_monitored_folders_frame_and_list_have_square_corners():
+    template = THEME_TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    assert "QFrame#directoryCard {\n    border: 1px solid $border;\n    border-radius: 0;" in template
+    assert "QListWidget#monitoredFoldersList::item {\n    border-radius: 0;" in template
