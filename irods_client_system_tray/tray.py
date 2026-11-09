@@ -396,6 +396,7 @@ class TrayController(QObject):
         if self._is_shutting_down:
             return
 
+        self.window.flush_pending_settings_save()
         self._is_shutting_down = True
         self._pending_initial_scans.clear()
         self._initial_scan_iterators.clear()
@@ -490,7 +491,7 @@ class TrayController(QObject):
         self._show_auto_worker_status()
         self._ensure_upload_workers()
         self._drain_upload_queue()
-        self.window.set_status_message("Saved upload settings.")
+        self.window.show_settings_saved_notice()
         self.window.append_activity(
             f"saved upload settings -> maximum workers={self._effective_upload_workers}, "
             f"retry attempts={self.config.retry.attempts}"

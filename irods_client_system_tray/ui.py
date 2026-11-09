@@ -9,7 +9,7 @@ from html import escape
 from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -1198,12 +1198,12 @@ class SettingsWindow(QWidget):
         upload_mode_row.addWidget(manual_card, 1)
         self._update_worker_mode_state()
 
-        settings_button_row = QHBoxLayout()
-        settings_button_row.setSpacing(10)
-        self.save_settings_button = QPushButton("Save Settings")
-        self.save_settings_button.clicked.connect(self._emit_save_settings_requested)
-        settings_button_row.addWidget(self.save_settings_button)
-        settings_button_row.addStretch(1)
+        settings_footer_row = QHBoxLayout()
+        self.settings_saved_label = QLabel("Settings Saved.")
+        self.settings_saved_label.setObjectName("settingsSavedLabel")
+        self.settings_saved_label.hide()
+        settings_footer_row.addWidget(self.settings_saved_label)
+        settings_footer_row.addStretch(1)
 
         directory_card = QFrame()
         directory_card.setFrameShape(QFrame.Shape.StyledPanel)
@@ -1299,7 +1299,7 @@ class SettingsWindow(QWidget):
         settings_layout.addWidget(retry_card)
         settings_layout.addStretch(1)
         settings_tab_layout.addWidget(settings_scroll, 1)
-        settings_tab_layout.addLayout(settings_button_row)
+        settings_tab_layout.addLayout(settings_footer_row)
 
         about_tab = QWidget()
         about_layout = QVBoxLayout(about_tab)
@@ -1383,6 +1383,26 @@ class SettingsWindow(QWidget):
         layout.addWidget(self.status_label)
         layout.addWidget(self.tabs, 1)
 
+        self._settings_save_timer = QTimer(self)
+        self._settings_save_timer.setSingleShot(True)
+        self._settings_save_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._settings_save_timer.setInterval(2000)
+        self._settings_save_timer.timeout.connect(self._emit_save_settings_requested)
+        self._saved_notice_timer = QTimer(self)
+        self._saved_notice_timer.setSingleShot(True)
+        self._saved_notice_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self._saved_notice_timer.setInterval(5000)
+        self._saved_notice_timer.timeout.connect(self.settings_saved_label.hide)
+        for control in (
+            self.retry_attempts_input, self.retry_first_delay_input,
+            self.retry_backoff_multiplier_input, self.maximum_upload_workers_input,
+            self.parallel_upload_threads_input, self.memory_cap_input,
+        ):
+            control.valueChanged.connect(self._schedule_settings_save)
+        for control in (self.single_write_chunk_input, self.parallel_write_chunk_input):
+            control.currentIndexChanged.connect(self._schedule_settings_save)
+        self.automatic_mode_radio.toggled.connect(self._schedule_settings_save)
+
     def set_monitoring_active(self, is_active: bool) -> None:
         """Update the checkbox state without re-emitting the user-facing toggle signal."""
 
@@ -1461,9 +1481,14 @@ class SettingsWindow(QWidget):
     def set_retry_config(self, retry: RetryConfig) -> None:
         """Populate the retry controls from the persisted app configuration."""
 
-        self.retry_attempts_input.setValue(retry.attempts)
-        self.retry_first_delay_input.setValue(retry.first_delay_in_seconds)
-        self.retry_backoff_multiplier_input.setValue(retry.backoff_multiplier)
+        with (
+            QSignalBlocker(self.retry_attempts_input),
+            QSignalBlocker(self.retry_first_delay_input),
+            QSignalBlocker(self.retry_backoff_multiplier_input),
+        ):
+            self.retry_attempts_input.setValue(retry.attempts)
+            self.retry_first_delay_input.setValue(retry.first_delay_in_seconds)
+            self.retry_backoff_multiplier_input.setValue(retry.backoff_multiplier)
 
     def get_retry_config(self) -> RetryConfig:
         """Collect the current retry controls into the config dataclass."""
@@ -1477,15 +1502,17 @@ class SettingsWindow(QWidget):
     def set_maximum_upload_workers(self, workers: int) -> None:
         """Show the configured worker limit, bounded by local CPU availability."""
 
-        self.maximum_upload_workers_input.setRange(1, maximum_upload_workers_limit())
-        self.maximum_upload_workers_input.setValue(workers)
+        with QSignalBlocker(self.maximum_upload_workers_input):
+            self.maximum_upload_workers_input.setRange(1, maximum_upload_workers_limit())
+            self.maximum_upload_workers_input.setValue(workers)
 
     def get_maximum_upload_workers(self) -> int:
         return self.maximum_upload_workers_input.value()
 
     def set_automatic_upload_workers(self, automatic: bool, memory_cap: int) -> None:
-        self.memory_cap_input.setValue(memory_cap)
-        (self.automatic_mode_radio if automatic else self.manual_mode_radio).setChecked(True)
+        with QSignalBlocker(self.memory_cap_input), QSignalBlocker(self.automatic_mode_radio):
+            self.memory_cap_input.setValue(memory_cap)
+            (self.automatic_mode_radio if automatic else self.manual_mode_radio).setChecked(True)
         self._update_worker_mode_state()
 
     def get_automatic_upload_workers(self) -> bool:
@@ -1495,15 +1522,17 @@ class SettingsWindow(QWidget):
         return self.memory_cap_input.value()
 
     def set_parallel_upload_threads(self, threads: int) -> None:
-        self.parallel_upload_threads_input.setRange(1, maximum_upload_workers_limit())
-        self.parallel_upload_threads_input.setValue(threads)
+        with QSignalBlocker(self.parallel_upload_threads_input):
+            self.parallel_upload_threads_input.setRange(1, maximum_upload_workers_limit())
+            self.parallel_upload_threads_input.setValue(threads)
 
     def get_parallel_upload_threads(self) -> int:
         return self.parallel_upload_threads_input.value()
 
     def set_auto_worker_status(self, workers: int) -> None:
         if self.automatic_mode_radio.isChecked():
-            self.maximum_upload_workers_input.setValue(workers)
+            with QSignalBlocker(self.maximum_upload_workers_input):
+                self.maximum_upload_workers_input.setValue(workers)
 
     def set_upload_summary(
         self, workers: int, active: int, queued: int, throughput: float | None,
@@ -1540,20 +1569,22 @@ class SettingsWindow(QWidget):
         self.parallel_write_chunk_input.setEnabled(not automatic)
 
     def set_write_chunk_settings(self, single: int, parallel: int) -> None:
-        self.single_write_chunk_input.setCurrentIndex(self.single_write_chunk_input.findData(single))
-        self.parallel_write_chunk_input.setCurrentIndex(self.parallel_write_chunk_input.findData(parallel))
+        with QSignalBlocker(self.single_write_chunk_input), QSignalBlocker(self.parallel_write_chunk_input):
+            self.single_write_chunk_input.setCurrentIndex(self.single_write_chunk_input.findData(single))
+            self.parallel_write_chunk_input.setCurrentIndex(self.parallel_write_chunk_input.findData(parallel))
 
     def get_write_chunk_settings(self) -> tuple[int, int]:
         return self.single_write_chunk_input.currentData(), self.parallel_write_chunk_input.currentData()
 
     def set_chunk_status(self, single: int, parallel: int) -> None:
         if self.automatic_mode_radio.isChecked():
-            self.single_write_chunk_input.setCurrentIndex(
-                self.single_write_chunk_input.findData(single)
-            )
-            self.parallel_write_chunk_input.setCurrentIndex(
-                self.parallel_write_chunk_input.findData(parallel)
-            )
+            with QSignalBlocker(self.single_write_chunk_input), QSignalBlocker(self.parallel_write_chunk_input):
+                self.single_write_chunk_input.setCurrentIndex(
+                    self.single_write_chunk_input.findData(single)
+                )
+                self.parallel_write_chunk_input.setCurrentIndex(
+                    self.parallel_write_chunk_input.findData(parallel)
+                )
 
     def set_status_message(self, message: str, *, is_error: bool = False) -> None:
         """Show a normal or error status message near the top of the window."""
@@ -1639,8 +1670,27 @@ class SettingsWindow(QWidget):
         local_path = item.data(Qt.ItemDataRole.UserRole)
         self.retry_failed_upload_requested.emit(local_path)
 
-    def _emit_save_settings_requested(self, _checked: bool = False) -> None:
-        """Notify the controller to save retry and worker settings."""
+    def _schedule_settings_save(self, *_args) -> None:
+        """Restart the quiet-period timer after a user edits Settings."""
+
+        self._saved_notice_timer.stop()
+        self.settings_saved_label.hide()
+        self._settings_save_timer.start()
+
+    def flush_pending_settings_save(self) -> None:
+        """Save an unfinished edit when the app exits before the debounce expires."""
+
+        if self._settings_save_timer.isActive():
+            self._settings_save_timer.stop()
+            self._emit_save_settings_requested()
+
+    def show_settings_saved_notice(self) -> None:
+        self._settings_save_timer.stop()
+        self.settings_saved_label.show()
+        self._saved_notice_timer.start()
+
+    def _emit_save_settings_requested(self) -> None:
+        """Notify the controller to save the current Settings controls."""
 
         self.save_settings_requested.emit()
 
