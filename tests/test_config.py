@@ -148,7 +148,7 @@ def test_upload_worker_limit_survives_restart_and_is_clamped_on_load(tmp_path, m
 def test_automatic_upload_worker_settings_survive_restart(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module.os, "cpu_count", lambda: 3)
     store = ConfigStore(path=tmp_path / "app_state.json")
-    assert store.load().automatic_upload_settings is False
+    assert store.load().automatic_upload_settings is True
 
     store.save(AppConfig(automatic_upload_settings=True, memory_cap_mib=512))
 
@@ -163,6 +163,8 @@ def test_automatic_upload_worker_settings_survive_restart(tmp_path, monkeypatch)
     store.path.write_text('{"automatic_write_chunks": true}', encoding="utf-8")
     assert store.load().automatic_upload_settings is True
     store.path.write_text('{"automatic_upload_settings": false, "automatic_write_chunks": true}', encoding="utf-8")
+    assert store.load().automatic_upload_settings is False
+    store.save(AppConfig(automatic_upload_settings=False))
     assert store.load().automatic_upload_settings is False
     store.path.write_text('{"memory_cap_mib": 1}', encoding="utf-8")
     assert store.load().memory_cap_mib == 12

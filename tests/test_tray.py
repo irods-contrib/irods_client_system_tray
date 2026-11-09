@@ -41,6 +41,9 @@ def controller(tmp_path, monkeypatch, qapp):
 
     monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "app_state.json")
     monkeypatch.setattr(config, "IRODS_ENVIRONMENT_PATH", tmp_path / "irods_environment.json")
+    # Most controller tests exercise Manual settings; first-launch Automatic mode
+    # is covered separately with a truly missing config file.
+    config.ConfigStore().save(AppConfig(automatic_upload_settings=False))
 
     from irods_client_system_tray.tray import TrayController
 
@@ -63,6 +66,39 @@ def controller(tmp_path, monkeypatch, qapp):
     )
     yield tray_controller
     tray_controller.shutdown()
+
+
+def test_first_run_starts_with_automatic_upload_settings(tmp_path, monkeypatch, qapp):
+    monkeypatch.setattr(config, "CONFIG_PATH", tmp_path / "app_state.json")
+    monkeypatch.setattr(config, "IRODS_ENVIRONMENT_PATH", tmp_path / "irods_environment.json")
+
+    from irods_client_system_tray.tray import TrayController
+
+    assert not config.CONFIG_PATH.exists()
+    first_run = TrayController(qapp)
+    try:
+        assert first_run.config.automatic_upload_settings is True
+        assert first_run._auto_workers is not None
+        assert first_run._chunk_tuners is not None
+        assert first_run.window.automatic_upload_workers_checkbox.isChecked()
+        assert not first_run.window.maximum_upload_workers_input.isEnabled()
+        assert not first_run.window.single_write_chunk_input.isEnabled()
+        assert not first_run.window.parallel_write_chunk_input.isEnabled()
+        assert first_run.window.memory_cap_input.isEnabled()
+
+        first_run.window.automatic_upload_workers_checkbox.setChecked(False)
+        first_run.window.save_settings_button.click()
+        assert config.ConfigStore().load().automatic_upload_settings is False
+    finally:
+        first_run.shutdown()
+
+    restarted = TrayController(qapp)
+    try:
+        assert restarted.config.automatic_upload_settings is False
+        assert restarted._auto_workers is None
+        assert restarted.window.maximum_upload_workers_input.isEnabled()
+    finally:
+        restarted.shutdown()
 
 
 @pytest.fixture
