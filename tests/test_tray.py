@@ -17,7 +17,8 @@ import time
 from threading import Barrier, Lock, Thread
 
 import pytest
-from PySide6.QtCore import QEvent, QObject
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtGui import QIcon, QPixmap
 
 from irods_client_system_tray import config
 from irods_client_system_tray.config import (
@@ -135,6 +136,26 @@ def _stored_folders(controller) -> list[tuple[str, str]]:
         (directory.source_directory, directory.target_collection)
         for directory in controller.config.monitored_directories
     ]
+
+
+def test_tray_icon_uses_the_round_application_wordmark(controller):
+    from irods_client_system_tray.main import APP_ICON_RESOURCE
+
+    expected = QPixmap()
+    assert expected.loadFromData(APP_ICON_RESOURCE.read_bytes(), "PNG")
+    assert controller.tray_icon.icon().pixmap(1024).toImage() == expected.toImage()
+
+
+def test_tray_icon_reuses_the_application_icon(controller):
+    previous = controller.app.windowIcon()
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.red)
+    icon = QIcon(pixmap)
+    try:
+        controller.app.setWindowIcon(icon)
+        assert controller._build_icon().pixmap(64).toImage() == icon.pixmap(64).toImage()
+    finally:
+        controller.app.setWindowIcon(previous)
 
 
 def _controller_with_saved_folders(tmp_path, monkeypatch, qapp, directories, *, active=True):

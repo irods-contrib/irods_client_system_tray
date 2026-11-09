@@ -49,4 +49,4 @@ include = ["irods_client_system_tray*"]
 exclude = ["tests*", "venv*"]
 
 [tool.setuptools.package-data]
-irods_client_system_tray = ["irods_logo.svg", "app_icon.png", "theme.qss.template"]
+irods_client_system_tray = ["app_icon.png", "theme.qss.template"]

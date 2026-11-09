@@ -13,12 +13,11 @@ from pathlib import Path
 from threading import Thread
 from typing import Iterator
 
-from PySide6.QtCore import QByteArray, QObject, QRectF, Qt, Signal, QThread, QTimer
-from PySide6.QtGui import QAction, QIcon, QPainter, QPixmap
-from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtCore import QObject, Qt, Signal, QThread, QTimer
+from PySide6.QtGui import QAction, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QStyle
 
-LOGO_RESOURCE = files("irods_client_system_tray").joinpath("irods_logo.svg")
+APP_ICON_RESOURCE = files("irods_client_system_tray").joinpath("app_icon.png")
 
 from .config import (
     ConfigStore,
@@ -175,7 +174,7 @@ class TrayController(QObject):
         self.monitor_toggle_action.toggled.connect(self.set_monitoring_active)
         self.menu = QMenu()
 
-        tray_icon = QIcon(self._build_icon())
+        tray_icon = self._build_icon()
         self.tray_icon = QSystemTrayIcon(tray_icon, self)
         self.tray_icon.setToolTip("iRODS Ingest")
         if not self.app.windowIcon().isNull():
@@ -509,21 +508,15 @@ class TrayController(QObject):
         self._apply_locked_state()
         self.prompt_login(show_window_on_success=True)
 
-    def _build_icon(self) -> QPixmap:
-        """Rasterize the iRODS logo SVG."""
+    def _build_icon(self) -> QIcon:
+        """Use the same round wordmark in the tray as the app window and Dock."""
 
-        renderer = QSvgRenderer(QByteArray(LOGO_RESOURCE.read_bytes()))
-        size = renderer.defaultSize().scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio)
-        pixmap = QPixmap(32, 32)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        renderer.render(
-            painter,
-            QRectF((32 - size.width()) / 2, (32 - size.height()) / 2, size.width(), size.height()),
-        )
-        painter.end()
-        return pixmap
+        if not self.app.windowIcon().isNull():
+            return self.app.windowIcon()
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(APP_ICON_RESOURCE.read_bytes(), "PNG"):
+            raise RuntimeError("Could not load the bundled application icon.")
+        return QIcon(pixmap)
 
     def _build_menu(self) -> None:
         """Create the tray context menu and wire actions to controller methods."""
