@@ -44,7 +44,7 @@ QLabel#validationLabel {
 
 QFrame#directoryCard {
     border: 1px solid $border;
-    border-radius: 14px;
+    border-radius: 0;
     background: $card_bg;
 }
 QLabel#directoryCardTitle,
@@ -81,6 +81,10 @@ QWidget#settingsWindow QListWidget::item {
 QWidget#settingsWindow QListWidget::item:selected {
     background: $accent;
     color: $accent_text;
+}
+QWidget#settingsWindow QListWidget#monitoredFoldersList,
+QWidget#settingsWindow QListWidget#monitoredFoldersList::item {
+    border-radius: 0;
 }
 
 QWidget#settingsWindow QPushButton {
