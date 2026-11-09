@@ -1065,7 +1065,7 @@ class SettingsWindow(QWidget):
         self.upload_throughput_label.setObjectName("uploadThroughputLabel")
         self.upload_throughput_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self.monitor_toggle = QCheckBox("Background monitoring enabled")
+        self.monitor_toggle = QCheckBox("Monitoring enabled")
         self.monitor_toggle.toggled.connect(self.monitoring_toggled)
         self.monitor_toggle.setObjectName("monitorToggleCheckbox")
 

@@ -636,6 +636,7 @@ def test_setting_the_toggle_does_not_emit_a_change(
     # If it did, every refresh would trigger a save and a restart of the watchers.
     toggles: list[bool] = []
     settings_window.monitoring_toggled.connect(toggles.append)
+    assert settings_window.monitor_toggle.text() == "Monitoring enabled"
 
     settings_window.set_monitoring_active(True)
 
