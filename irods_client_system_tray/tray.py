@@ -120,7 +120,9 @@ class TrayController(QObject):
             self.config.maximum_upload_workers
         )
         self._auto_workers = (
-            AutomaticUploadWorkers(maximum_upload_workers_limit())
+            AutomaticUploadWorkers(
+                maximum_upload_workers_limit(), initial=self.config.maximum_upload_workers
+            )
             if self.config.automatic_upload_settings else None
         )
         self._effective_upload_workers = (
@@ -394,6 +396,7 @@ class TrayController(QObject):
         self._pending_initial_scans.clear()
         self._initial_scan_iterators.clear()
         self._scheduled_initial_scans.clear()
+        self._snapshot_effective_upload_settings()
         self.config_store.save(self.config)
         self.monitor.shutdown()
         self._clear_upload_jobs()
@@ -459,6 +462,8 @@ class TrayController(QObject):
             self._auto_workers.current if self._auto_workers else self.config.maximum_upload_workers
         )
         self._enforce_chunk_memory_budget()
+        self._drain_upload_queue()
+        self._snapshot_effective_upload_settings()
         self.config.retry = normalize_retry_config(self.window.get_retry_config())
         user_key = build_retry_settings_user_key(self.environment)
         self.config.retry_by_user[user_key] = self.config.retry
@@ -479,6 +484,15 @@ class TrayController(QObject):
             f"saved upload settings -> maximum workers={self._effective_upload_workers}, "
             f"retry attempts={self.config.retry.attempts}"
         )
+
+    def _snapshot_effective_upload_settings(self) -> None:
+        """Persist the sizes actually in use, not an uncommitted parallel trial."""
+
+        if not self.config.automatic_upload_settings:
+            return
+        self.config.maximum_upload_workers = self._effective_upload_workers
+        self.config.single_write_chunk_size_mib = self._single_chunk_mib
+        self.config.parallel_write_chunk_size_mib = self._parallel_chunk_mib
 
     def sign_out(self) -> None:
         """Lock the app and return control to the sign-in dialog."""
@@ -826,8 +840,7 @@ class TrayController(QObject):
 
         self._is_authenticated = True
         if self._auto_workers is not None:
-            self._auto_workers = AutomaticUploadWorkers(maximum_upload_workers_limit())
-            self._effective_upload_workers = self._auto_workers.current
+            self._auto_workers.reset_observations()
             self._enforce_chunk_memory_budget()
             self._show_auto_worker_status()
         self.environment = environment

@@ -74,13 +74,16 @@ added while the app was closed are picked up.
 The Settings tab controls retry behavior and the maximum number of files uploaded
 at once. Upload workers default to two, capped at the machine's logical CPU count.
 This limit is separate from iRODS's parallel threads for a single large file.
-Automatic mode starts at two workers and cautiously adjusts the limit from recent
-transfer throughput when files are waiting, up to the machine's CPU count and a
-configurable memory cap. The single checkbox controls both worker and write sizes;
-their disabled settings show the current values. Turning Automatic off retains those
-values as the editable Manual settings. The memory cap is editable only in Automatic mode.
+Automatic mode starts at two workers by default and cautiously adjusts the limit
+from recent transfer throughput when files are waiting, up to the machine's CPU
+count and a configurable memory cap. The single checkbox controls both worker
+and write sizes; their disabled settings show the current values. Turning
+Automatic off retains those values as the editable Manual settings. The memory
+cap is editable only in Automatic mode.
 The main window header shows the active worker limit, waiting queue, and recent
-aggregate throughput. Measurements are kept in memory and reset on restart.
+aggregate throughput. The effective worker count and write sizes are saved on exit
+and restored on restart, whether Automatic or Manual is selected; tuning measurements
+themselves are not saved.
 Write sizes can also be set manually or tuned automatically for single-threaded
 and parallel PUTs separately (4, 8, or 16 MiB). Automatic worker and write-size
 trials do not run together. Parallel writes use a client-wide setting, so new
