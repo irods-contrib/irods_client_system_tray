@@ -777,6 +777,7 @@ def test_upload_modes_are_side_by_side_with_memory_cap_units(settings_window, qa
     assert manual_card.isAncestorOf(settings_window.parallel_write_chunk_input)
     assert settings_window.memory_cap_description.text().endswith("automatically.")
     assert "parallel-write buffering" in settings_window.memory_cap_description.text()
+    assert settings_window.memory_cap_label.text() == "Memory cap"
     assert settings_window.memory_cap_unit_label.text() == "MiB"
 
     try:
@@ -784,8 +785,17 @@ def test_upload_modes_are_side_by_side_with_memory_cap_units(settings_window, qa
         settings_window.show()
         qapp.processEvents()
         assert automatic_card.geometry().right() < manual_card.geometry().left()
+        assert settings_window.memory_cap_label.geometry().right() < (
+            settings_window.memory_cap_input.geometry().left()
+        )
         assert settings_window.memory_cap_input.geometry().right() < (
             settings_window.memory_cap_unit_label.geometry().left()
+        )
+        assert settings_window.memory_cap_label.geometry().center().y() == (
+            settings_window.memory_cap_input.geometry().center().y()
+        )
+        assert settings_window.parallel_write_chunk_input.y() < (
+            settings_window.single_write_chunk_input.y()
         )
         assert settings_window.save_settings_button.isVisible()
         assert settings_window.save_settings_button.geometry().bottom() <= settings_tab.height()
@@ -841,6 +851,11 @@ def test_automatic_worker_control_shows_effective_count(settings_window):
 def test_write_chunk_controls_keep_last_effective_values(settings_window):
     assert settings_window.get_write_chunk_settings() == (8, 4)
     assert settings_window.single_write_chunk_input.isEnabled()
+    for dropdown in (
+        settings_window.parallel_write_chunk_input,
+        settings_window.single_write_chunk_input,
+    ):
+        assert [dropdown.itemData(index) for index in range(dropdown.count())] == [16, 8, 4]
 
     settings_window.set_write_chunk_settings(4, 16)
     settings_window.set_automatic_upload_workers(True, 256)
