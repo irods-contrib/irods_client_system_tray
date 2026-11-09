@@ -761,6 +761,36 @@ def test_monitored_folders_list_has_a_dedicated_square_corner_style(settings_win
     assert settings_window.directory_list.objectName() == "monitoredFoldersList"
 
 
+def test_upload_modes_are_side_by_side_with_memory_cap_units(settings_window, qapp):
+    settings_tab = settings_window.tabs.widget(1)
+    automatic_card = settings_tab.findChild(QFrame, "automaticModeCard")
+    manual_card = settings_tab.findChild(QFrame, "manualModeCard")
+    assert automatic_card is not None
+    assert manual_card is not None
+    assert automatic_card.isAncestorOf(settings_window.automatic_mode_radio)
+    assert automatic_card.isAncestorOf(settings_window.memory_cap_input)
+    assert manual_card.isAncestorOf(settings_window.manual_mode_radio)
+    assert manual_card.isAncestorOf(settings_window.maximum_upload_workers_input)
+    assert manual_card.isAncestorOf(settings_window.single_write_chunk_input)
+    assert manual_card.isAncestorOf(settings_window.parallel_write_chunk_input)
+    assert settings_window.memory_cap_description.text().endswith("automatically.")
+    assert "parallel-write buffering" in settings_window.memory_cap_description.text()
+    assert settings_window.memory_cap_unit_label.text() == "MiB"
+
+    try:
+        settings_window.tabs.setCurrentIndex(1)
+        settings_window.show()
+        qapp.processEvents()
+        assert automatic_card.geometry().right() < manual_card.geometry().left()
+        assert settings_window.memory_cap_input.geometry().right() < (
+            settings_window.memory_cap_unit_label.geometry().left()
+        )
+        assert settings_window.save_settings_button.isVisible()
+        assert settings_window.save_settings_button.geometry().bottom() <= settings_tab.height()
+    finally:
+        settings_window.hide()
+
+
 def test_upload_worker_control_defaults_to_two_and_caps_at_cpu_count(
     monkeypatch, activity_log
 ):
@@ -823,7 +853,7 @@ def test_automatic_write_selectors_show_effective_sizes_and_freeze_on_manual(
     settings_window.set_chunk_status(8, 4)
     assert settings_window.get_write_chunk_settings() == (4, 16)
 
-    settings_window.automatic_upload_workers_checkbox.setChecked(True)
+    settings_window.automatic_mode_radio.setChecked(True)
     assert not settings_window.single_write_chunk_input.isEnabled()
     settings_window.set_chunk_status(8, 4)
     assert (
@@ -838,7 +868,7 @@ def test_automatic_write_selectors_show_effective_sizes_and_freeze_on_manual(
     ) == (16, 8)
     assert settings_window.get_write_chunk_settings() == (16, 8)
 
-    settings_window.automatic_upload_workers_checkbox.setChecked(False)
+    settings_window.manual_mode_radio.setChecked(True)
     assert settings_window.get_write_chunk_settings() == (16, 8)
     assert settings_window.single_write_chunk_input.isEnabled()
 

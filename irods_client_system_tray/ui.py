@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QButtonGroup,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -1090,7 +1092,7 @@ class SettingsWindow(QWidget):
         retry_layout.setContentsMargins(16, 16, 16, 16)
         retry_layout.setSpacing(12)
 
-        retry_title = QLabel("Upload settings")
+        retry_title = QLabel("Retry settings")
         retry_title.setObjectName("directoryCardTitle")
 
         retry_form_layout = QFormLayout()
@@ -1111,11 +1113,17 @@ class SettingsWindow(QWidget):
         self.maximum_upload_workers_input.setValue(
             min(DEFAULT_MAXIMUM_UPLOAD_WORKERS, maximum_upload_workers_limit())
         )
-        self.automatic_upload_workers_checkbox = QCheckBox("Automatic upload settings")
-        self.automatic_upload_workers_checkbox.toggled.connect(self._update_worker_mode_state)
+        self.automatic_mode_radio = QRadioButton("Automatic")
+        self.manual_mode_radio = QRadioButton("Manual")
+        self.upload_mode_group = QButtonGroup(self)
+        self.upload_mode_group.addButton(self.automatic_mode_radio)
+        self.upload_mode_group.addButton(self.manual_mode_radio)
+        self.manual_mode_radio.setChecked(True)
+        self.automatic_mode_radio.toggled.connect(self._update_worker_mode_state)
         self.memory_cap_input = QSpinBox()
         self.memory_cap_input.setRange(MIN_MEMORY_CAP_MIB, MAX_MEMORY_CAP_MIB)
         self.memory_cap_input.setValue(DEFAULT_MEMORY_CAP_MIB)
+        self.memory_cap_unit_label = QLabel("MiB")
         self.single_write_chunk_input = QComboBox()
         self.parallel_write_chunk_input = QComboBox()
         for size in WRITE_CHUNK_SIZES_MIB:
@@ -1131,14 +1139,51 @@ class SettingsWindow(QWidget):
         retry_form_layout.addRow("Retry attempts", self.retry_attempts_input)
         retry_form_layout.addRow("Initial delay (s)", self.retry_first_delay_input)
         retry_form_layout.addRow("Backoff multiplier", self.retry_backoff_multiplier_input)
-        retry_form_layout.addRow(self.automatic_upload_workers_checkbox)
-        retry_form_layout.addRow("Maximum upload workers", self.maximum_upload_workers_input)
-        retry_form_layout.addRow("Memory cap (MiB)", self.memory_cap_input)
-        retry_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
-        retry_form_layout.addRow("Parallel write", self.parallel_write_chunk_input)
 
         retry_layout.addWidget(retry_title)
         retry_layout.addLayout(retry_form_layout)
+
+        automatic_card = QFrame()
+        automatic_card.setFrameShape(QFrame.Shape.StyledPanel)
+        automatic_card.setObjectName("automaticModeCard")
+        automatic_layout = QVBoxLayout(automatic_card)
+        automatic_layout.setContentsMargins(16, 16, 16, 16)
+        automatic_layout.setSpacing(12)
+        self.memory_cap_description = QLabel(
+            "The memory cap limits estimated parallel-write buffering as worker "
+            "counts and write sizes adjust automatically."
+        )
+        self.memory_cap_description.setWordWrap(True)
+        cap_row = QHBoxLayout()
+        cap_row.setSpacing(6)
+        cap_row.addWidget(self.memory_cap_input)
+        cap_row.addWidget(self.memory_cap_unit_label)
+        cap_row.addStretch(1)
+        automatic_layout.addWidget(self.automatic_mode_radio)
+        automatic_layout.addWidget(self.memory_cap_description)
+        automatic_layout.addWidget(QLabel("Memory cap"))
+        automatic_layout.addLayout(cap_row)
+        automatic_layout.addStretch(1)
+
+        manual_card = QFrame()
+        manual_card.setFrameShape(QFrame.Shape.StyledPanel)
+        manual_card.setObjectName("manualModeCard")
+        manual_layout = QVBoxLayout(manual_card)
+        manual_layout.setContentsMargins(16, 16, 16, 16)
+        manual_layout.setSpacing(12)
+        manual_form_layout = QFormLayout()
+        manual_form_layout.setSpacing(10)
+        manual_form_layout.addRow("Upload workers", self.maximum_upload_workers_input)
+        manual_form_layout.addRow("Single-thread write", self.single_write_chunk_input)
+        manual_form_layout.addRow("Parallel write", self.parallel_write_chunk_input)
+        manual_layout.addWidget(self.manual_mode_radio)
+        manual_layout.addLayout(manual_form_layout)
+        manual_layout.addStretch(1)
+
+        upload_mode_row = QHBoxLayout()
+        upload_mode_row.setSpacing(14)
+        upload_mode_row.addWidget(automatic_card, 1)
+        upload_mode_row.addWidget(manual_card, 1)
         self._update_worker_mode_state()
 
         settings_button_row = QHBoxLayout()
@@ -1226,12 +1271,23 @@ class SettingsWindow(QWidget):
         activity_layout.addWidget(self.activity_list, 1)
 
         settings_tab = QWidget()
-        settings_layout = QVBoxLayout(settings_tab)
+        settings_tab_layout = QVBoxLayout(settings_tab)
+        settings_tab_layout.setContentsMargins(0, 0, 0, 0)
+        settings_tab_layout.setSpacing(12)
+        settings_scroll = QScrollArea()
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        settings_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        settings_content = QWidget()
+        settings_scroll.setWidget(settings_content)
+        settings_layout = QVBoxLayout(settings_content)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(14)
+        settings_layout.addLayout(upload_mode_row)
         settings_layout.addWidget(retry_card)
-        settings_layout.addLayout(settings_button_row)
         settings_layout.addStretch(1)
+        settings_tab_layout.addWidget(settings_scroll, 1)
+        settings_tab_layout.addLayout(settings_button_row)
 
         about_tab = QWidget()
         about_layout = QVBoxLayout(about_tab)
@@ -1417,17 +1473,17 @@ class SettingsWindow(QWidget):
 
     def set_automatic_upload_workers(self, automatic: bool, memory_cap: int) -> None:
         self.memory_cap_input.setValue(memory_cap)
-        self.automatic_upload_workers_checkbox.setChecked(automatic)
+        (self.automatic_mode_radio if automatic else self.manual_mode_radio).setChecked(True)
         self._update_worker_mode_state()
 
     def get_automatic_upload_workers(self) -> bool:
-        return self.automatic_upload_workers_checkbox.isChecked()
+        return self.automatic_mode_radio.isChecked()
 
     def get_memory_cap(self) -> int:
         return self.memory_cap_input.value()
 
     def set_auto_worker_status(self, workers: int) -> None:
-        if self.automatic_upload_workers_checkbox.isChecked():
+        if self.automatic_mode_radio.isChecked():
             self.maximum_upload_workers_input.setValue(workers)
 
     def set_upload_summary(
@@ -1457,7 +1513,7 @@ class SettingsWindow(QWidget):
         self.upload_throughput_label.setText(f"Throughput: {rate}")
 
     def _update_worker_mode_state(self, *_args) -> None:
-        automatic = self.automatic_upload_workers_checkbox.isChecked()
+        automatic = self.automatic_mode_radio.isChecked()
         self.maximum_upload_workers_input.setEnabled(not automatic)
         self.memory_cap_input.setEnabled(automatic)
         self.single_write_chunk_input.setEnabled(not automatic)
@@ -1471,7 +1527,7 @@ class SettingsWindow(QWidget):
         return self.single_write_chunk_input.currentData(), self.parallel_write_chunk_input.currentData()
 
     def set_chunk_status(self, single: int, parallel: int) -> None:
-        if self.automatic_upload_workers_checkbox.isChecked():
+        if self.automatic_mode_radio.isChecked():
             self.single_write_chunk_input.setCurrentIndex(
                 self.single_write_chunk_input.findData(single)
             )

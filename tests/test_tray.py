@@ -81,13 +81,13 @@ def test_first_run_starts_with_automatic_upload_settings(tmp_path, monkeypatch, 
         assert first_run.config.automatic_upload_settings is True
         assert first_run._auto_workers is not None
         assert first_run._chunk_tuners is not None
-        assert first_run.window.automatic_upload_workers_checkbox.isChecked()
+        assert first_run.window.automatic_mode_radio.isChecked()
         assert not first_run.window.maximum_upload_workers_input.isEnabled()
         assert not first_run.window.single_write_chunk_input.isEnabled()
         assert not first_run.window.parallel_write_chunk_input.isEnabled()
         assert first_run.window.memory_cap_input.isEnabled()
 
-        first_run.window.automatic_upload_workers_checkbox.setChecked(False)
+        first_run.window.manual_mode_radio.setChecked(True)
         first_run.window.save_settings_button.click()
         assert config.ConfigStore().load().automatic_upload_settings is False
     finally:
@@ -694,7 +694,7 @@ def test_automatic_mode_changes_active_capacity_when_backlogged(
 
     monkeypatch.setattr(controller, "_ensure_upload_workers", safely_add_workers)
     monkeypatch.setattr(controller, "_record_chunk_success", lambda *_args: None)
-    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_mode_radio.setChecked(True)
     controller.window.memory_cap_input.setValue(256)
     controller.window.save_settings_button.click()
     tuner = controller._auto_workers
@@ -728,13 +728,13 @@ def test_automatic_mode_changes_active_capacity_when_backlogged(
 
 def test_manual_mode_keeps_the_effective_worker_count(controller):
     controller.window.maximum_upload_workers_input.setValue(1)
-    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_mode_radio.setChecked(True)
     controller.window.save_settings_button.click()
 
     assert controller._effective_upload_workers == min(2, config.maximum_upload_workers_limit())
     assert controller.window.maximum_upload_workers_input.value() == controller._effective_upload_workers
 
-    controller.window.automatic_upload_workers_checkbox.setChecked(False)
+    controller.window.manual_mode_radio.setChecked(True)
     controller.window.save_settings_button.click()
 
     assert controller._auto_workers is None
@@ -747,7 +747,7 @@ def test_automatic_memory_cap_limits_workers_and_parallel_write_size(controller)
     window.parallel_write_chunk_input.setCurrentIndex(
         window.parallel_write_chunk_input.findData(16)
     )
-    window.automatic_upload_workers_checkbox.setChecked(True)
+    window.automatic_mode_radio.setChecked(True)
     window.memory_cap_input.setValue(12)
     window.save_settings_button.click()
 
@@ -758,7 +758,7 @@ def test_automatic_memory_cap_limits_workers_and_parallel_write_size(controller)
     assert window.maximum_upload_workers_input.value() == 1
     assert window.parallel_write_chunk_input.currentData() == 4
 
-    window.automatic_upload_workers_checkbox.setChecked(False)
+    window.manual_mode_radio.setChecked(True)
     assert not window.memory_cap_input.isEnabled()
     window.save_settings_button.click()
     assert controller.config_store.load().parallel_write_chunk_size_mib == 4
@@ -812,7 +812,7 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
     window.parallel_write_chunk_input.setCurrentIndex(
         window.parallel_write_chunk_input.findData(16)
     )
-    window.automatic_upload_workers_checkbox.setChecked(True)
+    window.automatic_mode_radio.setChecked(True)
     window.save_settings_button.click()
 
     assert window.get_write_chunk_settings() == (4, 16)
@@ -838,7 +838,7 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
         window.parallel_write_chunk_input.currentData(),
     ) == (8, 8)
 
-    window.automatic_upload_workers_checkbox.setChecked(False)
+    window.manual_mode_radio.setChecked(True)
     assert window.get_write_chunk_settings() == (8, 8)
     window.save_settings_button.click()
     assert (controller._single_chunk_mib, controller._parallel_chunk_mib) == (8, 8)
@@ -854,7 +854,7 @@ def test_restart_uses_last_effective_upload_settings(controller, automatic):
         pytest.skip("Needs at least three local CPUs")
 
     if automatic:
-        controller.window.automatic_upload_workers_checkbox.setChecked(True)
+        controller.window.automatic_mode_radio.setChecked(True)
     else:
         controller.window.maximum_upload_workers_input.setValue(3)
         controller.window.single_write_chunk_input.setCurrentIndex(
@@ -898,7 +898,7 @@ def test_restart_uses_last_effective_upload_settings(controller, automatic):
 def test_restart_does_not_save_unapplied_parallel_trial(controller):
     from irods_client_system_tray.tray import TrayController
 
-    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_mode_radio.setChecked(True)
     controller.window.save_settings_button.click()
     controller._chunk_tuners[True].current = 8
     controller._queue_parallel_chunk_change(8)
@@ -918,7 +918,7 @@ def test_restart_does_not_save_unapplied_parallel_trial(controller):
 def test_single_chunk_trial_changes_the_next_dispatched_job(
     controller, queued_uploads, tmp_path
 ):
-    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_mode_radio.setChecked(True)
     controller.window.save_settings_button.click()
     tuner = controller._chunk_tuners[False]
     tuner.MIN_SAMPLES = 1
@@ -953,7 +953,7 @@ def test_parallel_chunk_change_waits_until_in_flight_uploads_finish(
     if controller._effective_upload_workers < 2:
         pytest.skip("Needs at least two local CPUs")
     monkeypatch.setattr(irods_parallel, "COPY_BUF_SIZE", irods_parallel.COPY_BUF_SIZE)
-    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_mode_radio.setChecked(True)
     controller.window.save_settings_button.click()
     tuner = controller._chunk_tuners[True]
     tuner.MIN_SAMPLES = 1
@@ -992,7 +992,7 @@ def test_parallel_chunk_change_waits_until_in_flight_uploads_finish(
 def test_chunk_probe_does_not_probe_worker_count_at_the_same_time(
     controller, queued_uploads, tmp_path
 ):
-    controller.window.automatic_upload_workers_checkbox.setChecked(True)
+    controller.window.automatic_mode_radio.setChecked(True)
     controller.window.save_settings_button.click()
     controller._chunk_tuners[False].MIN_SAMPLES = 1
     controller._chunk_tuners[False].MIN_WINDOW_SECONDS = 0
