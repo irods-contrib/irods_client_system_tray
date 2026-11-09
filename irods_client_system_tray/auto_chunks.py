@@ -6,13 +6,10 @@ from collections import deque
 from statistics import median
 
 from .auto_workers import TransferSample
-from .config import DEFAULT_MEMORY_CAP_MIB
+from .config import DEFAULT_MEMORY_CAP_MIB, DEFAULT_PARALLEL_UPLOAD_THREADS
 
 
 CHUNK_SIZES_MIB = (4, 8, 16)
-PARALLEL_TRANSFER_THREADS = 3
-
-
 class AutomaticChunkSize:
     """Compare aggregate throughput at nearby sizes with a fixed worker count."""
 
@@ -25,10 +22,12 @@ class AutomaticChunkSize:
     def __init__(
         self, initial: int, *, parallel: bool = False,
         memory_cap_mib: int = DEFAULT_MEMORY_CAP_MIB,
+        parallel_threads: int = DEFAULT_PARALLEL_UPLOAD_THREADS,
     ) -> None:
         self.current = initial
         self.parallel = parallel
         self.memory_cap_mib = memory_cap_mib
+        self.parallel_threads = parallel_threads
         self._samples: deque[TransferSample] = deque(maxlen=8)
         self._window_started_at: float | None = None
         self._reference: tuple[float, float] | None = None
@@ -55,7 +54,7 @@ class AutomaticChunkSize:
     def _allowed(self, size: int, workers: int) -> bool:
         return size in CHUNK_SIZES_MIB and (
             not self.parallel
-            or workers * PARALLEL_TRANSFER_THREADS * size <= self.memory_cap_mib
+            or workers * self.parallel_threads * size <= self.memory_cap_mib
         )
 
     def limit_for_workers(self, workers: int) -> int:

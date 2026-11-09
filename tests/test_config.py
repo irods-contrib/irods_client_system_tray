@@ -132,6 +132,25 @@ def test_upload_worker_limit_is_bounded_by_local_cpus(monkeypatch, cpus, value, 
     assert normalize_maximum_upload_workers(value) == expected
 
 
+@pytest.mark.parametrize(
+    ("cpus", "value", "expected"),
+    [(8, None, 3), (8, "6", 6), (8, 0, 1), (8, 99, 8), (1, 3, 1)],
+)
+def test_parallel_upload_threads_are_bounded_by_local_cpus(monkeypatch, cpus, value, expected):
+    monkeypatch.setattr(config_module.os, "cpu_count", lambda: cpus)
+
+    assert config_module.normalize_parallel_upload_threads(value) == expected
+
+
+def test_parallel_upload_threads_survive_restart(tmp_path):
+    store = ConfigStore(path=tmp_path / "app_state.json")
+    store.save(AppConfig(parallel_upload_threads=2))
+
+    assert store.load().parallel_upload_threads == 2
+    store.path.write_text('{"parallel_upload_threads": "invalid"}', encoding="utf-8")
+    assert store.load().parallel_upload_threads == min(3, config_module.maximum_upload_workers_limit())
+
+
 def test_upload_worker_limit_survives_restart_and_is_clamped_on_load(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module.os, "cpu_count", lambda: 4)
     store = ConfigStore(path=tmp_path / "app_state.json")

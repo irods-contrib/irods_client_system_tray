@@ -16,6 +16,7 @@ from .config import (
     normalize_file_path,
     normalize_irods_collection,
     normalize_post_upload_action,
+    DEFAULT_PARALLEL_UPLOAD_THREADS,
 )
 
 
@@ -37,6 +38,7 @@ class IRODSUploadWorker(QObject):
         super().__init__()
         self._prepare_parallel_uploads()
         self.write_buffer_size = self.UPLOAD_WRITE_BUFFER_SIZE
+        self.parallel_upload_threads = DEFAULT_PARALLEL_UPLOAD_THREADS
         self._environment = self._copy_environment(environment or IRODSEnvironment())
         self._cancelled_monitored_roots: set[str] = set()
         self._cancelled_monitored_roots_lock = Lock()
@@ -271,7 +273,8 @@ class IRODSUploadWorker(QObject):
 
             try:
                 session.data_objects.put(
-                    str(local_file), logical_path, updatables=update_progress
+                    str(local_file), logical_path,
+                    num_threads=self.parallel_upload_threads, updatables=update_progress,
                 )
             except RuntimeError as exc:
                 if str(exc) != "parallel put failed":

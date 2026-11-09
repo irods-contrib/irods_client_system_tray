@@ -37,6 +37,7 @@ MAX_MEMORY_CAP_MIB = 65536
 WRITE_CHUNK_SIZES_MIB = (4, 8, 16)
 DEFAULT_SINGLE_WRITE_CHUNK_MIB = 8
 DEFAULT_PARALLEL_WRITE_CHUNK_MIB = 4
+DEFAULT_PARALLEL_UPLOAD_THREADS = 3
 DEFAULT_POST_UPLOAD_ACTION = "delete"
 POST_UPLOAD_ACTIONS = frozenset({"trash", "delete", "move"})
 DEFAULT_REGEX_FILTER_MODE = "disabled"
@@ -56,6 +57,9 @@ class AppConfig:
     memory_cap_mib: int = DEFAULT_MEMORY_CAP_MIB
     single_write_chunk_size_mib: int = DEFAULT_SINGLE_WRITE_CHUNK_MIB
     parallel_write_chunk_size_mib: int = DEFAULT_PARALLEL_WRITE_CHUNK_MIB
+    parallel_upload_threads: int = field(
+        default_factory=lambda: normalize_parallel_upload_threads(DEFAULT_PARALLEL_UPLOAD_THREADS)
+    )
     retry: RetryConfig = field(default_factory=lambda: RetryConfig())
     retry_by_user: dict[str, RetryConfig] = field(default_factory=dict)
 
@@ -132,6 +136,16 @@ def normalize_maximum_upload_workers(value: object) -> int:
     except (TypeError, ValueError, OverflowError):
         workers = DEFAULT_MAXIMUM_UPLOAD_WORKERS
     return min(max(1, workers), maximum_upload_workers_limit())
+
+
+def normalize_parallel_upload_threads(value: object) -> int:
+    """Bound per-file parallel threads to the available logical CPUs."""
+
+    try:
+        threads = int(value)
+    except (TypeError, ValueError, OverflowError):
+        threads = DEFAULT_PARALLEL_UPLOAD_THREADS
+    return min(max(1, threads), maximum_upload_workers_limit())
 
 
 def normalize_write_chunk_size(value: object, default: int) -> int:
@@ -460,6 +474,9 @@ class ConfigStore:
             parallel_write_chunk_size_mib=normalize_write_chunk_size(
                 payload.get("parallel_write_chunk_size_mib"), DEFAULT_PARALLEL_WRITE_CHUNK_MIB
             ),
+            parallel_upload_threads=normalize_parallel_upload_threads(
+                payload.get("parallel_upload_threads", DEFAULT_PARALLEL_UPLOAD_THREADS)
+            ),
             retry=normalize_retry_config(payload.get("retry")),
             retry_by_user=normalize_retry_map(payload.get("retry_by_user")),
         )
@@ -483,6 +500,9 @@ class ConfigStore:
             ),
             "parallel_write_chunk_size_mib": normalize_write_chunk_size(
                 config.parallel_write_chunk_size_mib, DEFAULT_PARALLEL_WRITE_CHUNK_MIB
+            ),
+            "parallel_upload_threads": normalize_parallel_upload_threads(
+                config.parallel_upload_threads
             ),
             "monitored_directories": [
                 {
