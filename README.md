@@ -49,6 +49,7 @@ Pass `--foreground` or `-f`, or set `IRODS_CLIENT_SYSTEM_TRAY_FOREGROUND=1`,
 to keep it attached to the terminal.
 On macOS the running app also appears in the Dock and app switcher, even when
 started from the terminal in the background.
+The same round iRODS wordmark appears in the app window, Dock, and tray/menu bar.
 
 For a source checkout, this also works:
 
