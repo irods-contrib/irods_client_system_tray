@@ -19,6 +19,7 @@ from threading import Barrier, Lock, Thread
 import pytest
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtTest import QTest
 
 from irods_client_system_tray import config
 from irods_client_system_tray.config import (
@@ -88,7 +89,7 @@ def test_first_run_starts_with_automatic_upload_settings(tmp_path, monkeypatch, 
         assert first_run.window.memory_cap_input.isEnabled()
 
         first_run.window.manual_mode_radio.setChecked(True)
-        first_run.window.save_settings_button.click()
+        first_run.save_settings()
         assert config.ConfigStore().load().automatic_upload_settings is False
     finally:
         first_run.shutdown()
@@ -100,6 +101,29 @@ def test_first_run_starts_with_automatic_upload_settings(tmp_path, monkeypatch, 
         assert restarted.window.maximum_upload_workers_input.isEnabled()
     finally:
         restarted.shutdown()
+
+
+def test_pending_settings_are_saved_on_exit(controller):
+    controller.window.retry_attempts_input.setValue(3)
+    assert controller.window._settings_save_timer.isActive()
+
+    controller.shutdown()
+
+    assert controller.config_store.load().retry.attempts == 3
+    assert not controller.window._settings_save_timer.isActive()
+
+
+def test_settings_autosave_persists_edits_and_shows_confirmation(controller):
+    controller.window.retry_first_delay_input.setValue(4)
+    assert controller.window._settings_save_timer.isActive()
+    assert controller.config_store.load().retry.first_delay_in_seconds != 4
+
+    QTest.qWait(2100)
+
+    assert controller.config_store.load().retry.first_delay_in_seconds == 4
+    assert controller.window.settings_saved_label.text() == "Settings Saved."
+    assert not controller.window.settings_saved_label.isHidden()
+    assert not controller.window._settings_save_timer.isActive()
 
 
 @pytest.fixture
@@ -462,7 +486,7 @@ def test_lowering_worker_limit_waits_for_active_uploads(
     assert len(queued_uploads) == 2
 
     controller.window.maximum_upload_workers_input.setValue(1)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     assert controller.config_store.load().maximum_upload_workers == 1
 
     controller._handle_upload_finished(files[0], "/tempZone/home/alice/0.txt")
@@ -528,7 +552,7 @@ def test_increasing_worker_limit_starts_additional_workers(
     if config.maximum_upload_workers_limit() < 3:
         pytest.skip("Needs at least three local CPUs")
     controller.window.maximum_upload_workers_input.setValue(3)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     assert controller.config.maximum_upload_workers == 3
     assert len(controller._upload_workers) == 3
     for slot in controller._upload_workers[2:]:
@@ -572,7 +596,7 @@ def test_header_eta_accounts_for_active_progress_and_waiting_files(
     controller, queued_uploads, tmp_path
 ):
     controller.window.maximum_upload_workers_input.setValue(1)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     folder = tmp_path / "watched"
     folder.mkdir()
     controller.config.monitored_directories = [
@@ -605,7 +629,7 @@ def test_header_eta_is_unknown_without_speed_or_waiting_file_size(
     controller, queued_uploads, tmp_path
 ):
     controller.window.maximum_upload_workers_input.setValue(1)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     folder = tmp_path / "watched"
     folder.mkdir()
     controller.config.monitored_directories = [
@@ -696,7 +720,7 @@ def test_automatic_mode_changes_active_capacity_when_backlogged(
     monkeypatch.setattr(controller, "_record_chunk_success", lambda *_args: None)
     controller.window.automatic_mode_radio.setChecked(True)
     controller.window.memory_cap_input.setValue(256)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     tuner = controller._auto_workers
     tuner.MIN_SAMPLES = 1
     tuner.MIN_WINDOW_SECONDS = 0
@@ -729,13 +753,13 @@ def test_automatic_mode_changes_active_capacity_when_backlogged(
 def test_manual_mode_keeps_the_effective_worker_count(controller):
     controller.window.maximum_upload_workers_input.setValue(1)
     controller.window.automatic_mode_radio.setChecked(True)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
 
     assert controller._effective_upload_workers == min(2, config.maximum_upload_workers_limit())
     assert controller.window.maximum_upload_workers_input.value() == controller._effective_upload_workers
 
     controller.window.manual_mode_radio.setChecked(True)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
 
     assert controller._auto_workers is None
     assert controller._effective_upload_workers == min(2, config.maximum_upload_workers_limit())
@@ -749,7 +773,7 @@ def test_automatic_memory_cap_limits_workers_and_parallel_write_size(controller)
     )
     window.automatic_mode_radio.setChecked(True)
     window.memory_cap_input.setValue(12)
-    window.save_settings_button.click()
+    controller.save_settings()
 
     assert controller.config_store.load().memory_cap_mib == 12
     assert controller._effective_upload_workers == 1
@@ -760,7 +784,7 @@ def test_automatic_memory_cap_limits_workers_and_parallel_write_size(controller)
 
     window.manual_mode_radio.setChecked(True)
     assert not window.memory_cap_input.isEnabled()
-    window.save_settings_button.click()
+    controller.save_settings()
     assert controller.config_store.load().parallel_write_chunk_size_mib == 4
 
 
@@ -771,7 +795,7 @@ def test_automatic_memory_cap_uses_configured_threads_and_clamps_them(controller
     window.parallel_upload_threads_input.setValue(4)
     window.automatic_mode_radio.setChecked(True)
     window.memory_cap_input.setValue(48)
-    window.save_settings_button.click()
+    controller.save_settings()
 
     assert controller._effective_parallel_threads == 4
     assert controller._auto_workers.ceiling == 3  # 48 / (4 threads * 4 MiB).
@@ -780,7 +804,7 @@ def test_automatic_memory_cap_uses_configured_threads_and_clamps_them(controller
     assert not window.parallel_upload_threads_input.isEnabled()
 
     window.memory_cap_input.setValue(12)
-    window.save_settings_button.click()
+    controller.save_settings()
     assert controller._effective_parallel_threads == 3  # 12 / minimum 4 MiB.
     assert controller._effective_upload_workers == 1
     assert window.get_parallel_upload_threads() == 3
@@ -802,7 +826,7 @@ def test_manual_write_sizes_apply_to_single_and_parallel_jobs(
         controller.window.parallel_write_chunk_input.findData(16)
     )
     controller.window.parallel_upload_threads_input.setValue(2)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
 
     assert controller.config_store.load().parallel_write_chunk_size_mib == 16
     assert controller.config_store.load().parallel_upload_threads == 2
@@ -834,7 +858,7 @@ def test_one_thread_uses_single_thread_write_size_for_large_file(
     controller, queued_uploads, tmp_path
 ):
     controller.window.parallel_upload_threads_input.setValue(1)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     folder = tmp_path / "watched"
     folder.mkdir()
     controller.config.monitored_directories = [
@@ -861,7 +885,7 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
         window.parallel_write_chunk_input.findData(16)
     )
     window.automatic_mode_radio.setChecked(True)
-    window.save_settings_button.click()
+    controller.save_settings()
 
     assert window.get_write_chunk_settings() == (4, 16)
     assert (
@@ -878,7 +902,7 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
         window.single_write_chunk_input.currentData(),
         window.parallel_write_chunk_input.currentData(),
     ) == (8, 8)
-    window.save_settings_button.click()
+    controller.save_settings()
     saved = controller.config_store.load()
     assert (saved.single_write_chunk_size_mib, saved.parallel_write_chunk_size_mib) == (8, 8)
     assert (
@@ -888,7 +912,7 @@ def test_automatic_write_sizes_become_manual_on_disable(controller):
 
     window.manual_mode_radio.setChecked(True)
     assert window.get_write_chunk_settings() == (8, 8)
-    window.save_settings_button.click()
+    controller.save_settings()
     assert (controller._single_chunk_mib, controller._parallel_chunk_mib) == (8, 8)
     saved = controller.config_store.load()
     assert (saved.single_write_chunk_size_mib, saved.parallel_write_chunk_size_mib) == (8, 8)
@@ -912,7 +936,7 @@ def test_restart_uses_last_effective_upload_settings(controller, automatic):
         controller.window.parallel_write_chunk_input.setCurrentIndex(
             controller.window.parallel_write_chunk_input.findData(8)
         )
-    controller.window.save_settings_button.click()
+    controller.save_settings()
 
     if automatic:
         controller._auto_workers.current = 3
@@ -950,7 +974,7 @@ def test_restart_does_not_save_unapplied_parallel_trial(controller):
     from irods_client_system_tray.tray import TrayController
 
     controller.window.automatic_mode_radio.setChecked(True)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     controller._chunk_tuners[True].current = 8
     controller._queue_parallel_chunk_change(8)
     assert controller._parallel_chunk_mib == 4
@@ -970,7 +994,7 @@ def test_single_chunk_trial_changes_the_next_dispatched_job(
     controller, queued_uploads, tmp_path
 ):
     controller.window.automatic_mode_radio.setChecked(True)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     tuner = controller._chunk_tuners[False]
     tuner.MIN_SAMPLES = 1
     tuner.MIN_WINDOW_SECONDS = 0
@@ -1005,7 +1029,7 @@ def test_parallel_chunk_change_waits_until_in_flight_uploads_finish(
         pytest.skip("Needs at least two local CPUs")
     monkeypatch.setattr(irods_parallel, "COPY_BUF_SIZE", irods_parallel.COPY_BUF_SIZE)
     controller.window.automatic_mode_radio.setChecked(True)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     tuner = controller._chunk_tuners[True]
     tuner.MIN_SAMPLES = 1
     tuner.MIN_WINDOW_SECONDS = 0
@@ -1044,7 +1068,7 @@ def test_chunk_probe_does_not_probe_worker_count_at_the_same_time(
     controller, queued_uploads, tmp_path
 ):
     controller.window.automatic_mode_radio.setChecked(True)
-    controller.window.save_settings_button.click()
+    controller.save_settings()
     controller._chunk_tuners[False].MIN_SAMPLES = 1
     controller._chunk_tuners[False].MIN_WINDOW_SECONDS = 0
     controller._auto_workers.MIN_SAMPLES = 1
@@ -1240,7 +1264,7 @@ def test_saving_retry_settings_does_not_change_the_session(controller, tmp_path)
     controller.window.retry_first_delay_input.setValue(5)
     controller.window.retry_backoff_multiplier_input.setValue(2.0)
 
-    controller.window.save_settings_button.click()
+    controller.save_settings()
 
     assert controller.config.retry.attempts == 3
     assert controller.config.retry.first_delay_in_seconds == 5

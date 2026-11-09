@@ -37,6 +37,10 @@ QLabel#settingsStatusLabel {
 QLabel#settingsStatusLabel[error="true"] {
     color: $error;
 }
+QLabel#settingsSavedLabel {
+    color: $accent;
+    font-size: $font_sm;
+}
 QLabel#validationLabel {
     color: $error;
     font-size: $font_sm;

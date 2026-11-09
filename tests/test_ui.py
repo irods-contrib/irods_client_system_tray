@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QFrame, QLabel, QListWidget, QPushButton, QSpinBox
 
 from irods_client_system_tray.activity_log import ActivityLog
@@ -23,6 +24,7 @@ from irods_client_system_tray.config import (
     DEFAULT_POST_UPLOAD_ACTION,
     IRODSEnvironment,
     MonitoredDirectory,
+    RetryConfig,
 )
 from irods_client_system_tray.ui import (
     AddDirectoryDialog,
@@ -749,12 +751,86 @@ def test_settings_tab_contains_upload_controls(settings_window):
     assert settings_tab.findChild(QSpinBox, "maximumUploadWorkers") is (
         settings_window.maximum_upload_workers_input
     )
-    assert settings_window.save_settings_button.text() == "Save Settings"
+    assert not hasattr(settings_window, "save_settings_button")
 
     requested = []
     settings_window.save_settings_requested.connect(lambda: requested.append(True))
-    settings_window.save_settings_button.click()
+    settings_window.retry_attempts_input.setValue(2)
+    assert settings_window._settings_save_timer.isActive()
+    assert requested == []
+    settings_window.flush_pending_settings_save()
     assert requested == [True]
+
+
+def test_settings_autosave_after_two_seconds_of_inactivity(settings_window):
+    requested = []
+    settings_window.save_settings_requested.connect(lambda: requested.append(True))
+    assert settings_window._settings_save_timer.interval() == 2000
+    assert settings_window._settings_save_timer.isSingleShot()
+
+    settings_window.retry_attempts_input.setValue(2)
+    QTest.qWait(1050)
+    settings_window.retry_attempts_input.setValue(3)
+    QTest.qWait(1050)
+    assert requested == []
+    QTest.qWait(1050)
+    assert requested == [True]
+    assert not settings_window._settings_save_timer.isActive()
+
+
+def test_all_settings_edits_schedule_save_but_controller_refreshes_do_not(settings_window):
+    if config_module.maximum_upload_workers_limit() < 2:
+        pytest.skip("Needs at least two local CPUs")
+    settings_window.set_retry_config(RetryConfig(attempts=3))
+    settings_window.set_maximum_upload_workers(1)
+    settings_window.set_parallel_upload_threads(1)
+    settings_window.set_automatic_upload_workers(True, 512)
+    settings_window.set_auto_worker_status(2)
+    settings_window.set_write_chunk_settings(4, 16)
+    settings_window.set_chunk_status(8, 4)
+    assert not settings_window._settings_save_timer.isActive()
+
+    settings_window.manual_mode_radio.setChecked(True)
+    assert settings_window._settings_save_timer.isActive()
+    settings_window._settings_save_timer.stop()
+    edits = (
+        lambda: settings_window.retry_attempts_input.setValue(4),
+        lambda: settings_window.retry_first_delay_input.setValue(5),
+        lambda: settings_window.retry_backoff_multiplier_input.setValue(2.0),
+        lambda: settings_window.maximum_upload_workers_input.setValue(1),
+        lambda: settings_window.parallel_upload_threads_input.setValue(2),
+        lambda: settings_window.parallel_write_chunk_input.setCurrentIndex(
+            settings_window.parallel_write_chunk_input.findData(8)
+        ),
+        lambda: settings_window.single_write_chunk_input.setCurrentIndex(
+            settings_window.single_write_chunk_input.findData(16)
+        ),
+    )
+    for edit in edits:
+        edit()
+        assert settings_window._settings_save_timer.isActive()
+        settings_window._settings_save_timer.stop()
+    settings_window.automatic_mode_radio.setChecked(True)
+    assert settings_window._settings_save_timer.isActive()
+    settings_window._settings_save_timer.stop()
+    settings_window.memory_cap_input.setValue(256)
+    assert settings_window._settings_save_timer.isActive()
+    settings_window._settings_save_timer.stop()
+
+
+def test_settings_saved_notice_disappears_after_five_seconds(settings_window):
+    assert settings_window.settings_saved_label.isHidden()
+    settings_window.show_settings_saved_notice()
+    assert settings_window.settings_saved_label.text() == "Settings Saved."
+    assert not settings_window.settings_saved_label.isHidden()
+    assert settings_window._saved_notice_timer.interval() == 5000
+    QTest.qWait(5100)
+    assert settings_window.settings_saved_label.isHidden()
+
+    settings_window.show_settings_saved_notice()
+    settings_window.retry_attempts_input.setValue(2)
+    assert settings_window.settings_saved_label.isHidden()
+    assert not settings_window._saved_notice_timer.isActive()
 
 
 def test_monitored_folders_list_has_a_dedicated_square_corner_style(settings_window):
@@ -797,8 +873,7 @@ def test_upload_modes_are_side_by_side_with_memory_cap_units(settings_window, qa
         assert settings_window.parallel_write_chunk_input.y() < (
             settings_window.single_write_chunk_input.y()
         )
-        assert settings_window.save_settings_button.isVisible()
-        assert settings_window.save_settings_button.geometry().bottom() <= settings_tab.height()
+        assert settings_window.settings_saved_label.parentWidget() is settings_tab
     finally:
         settings_window.hide()
 
