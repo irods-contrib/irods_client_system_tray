@@ -11,32 +11,37 @@ and this project **only** adheres to the following _(as defined at [Semantic Ver
 > - MINOR version when you add functionality in a backward compatible manner
 > - PATCH version when you make backward compatible bug fixes
 
-## [0.2.0] - 2026-11-08
+## [0.2.0] - 2026-11-10
 
-- Monitor all watched folders recursively and prevent overlapping watches.
-- Queue existing files when a folder is first added for monitoring.
-- Scan saved monitored folders after startup for files added while the app was closed.
-- Allow configuring simultaneous uploads, defaulting to two workers per machine.
-- Add automatic worker tuning and queue/throughput statistics in the window header.
-- Tune single and parallel PUT write sizes separately within a bounded memory budget.
-- Combine Automatic worker and write-size controls, with a configurable memory cap.
-- Restore the last effective worker count and write sizes after restarting in Automatic mode.
-- Enable Automatic upload settings by default on first launch.
-- Configure threads per upload in Manual mode and account for them in Automatic sizing.
-- Save Settings automatically after a quiet period and show a temporary confirmation.
-- Add an About tab and asynchronous daily PyPI update checks.
-- Show remaining upload bytes and a compact ETA; zero idle throughput after five seconds.
-- Graph ten minutes of session-only aggregate throughput with idle periods and smoothing.
-- Update header throughput and ETA from live upload samples during ongoing transfers.
-- Smooth the displayed ETA over five seconds without delaying queue or idle resets.
-- Show intermediate upload progress as file data is transferred.
-- Include underlying errors and reported byte counts when a parallel upload fails.
-- Fix parallel uploads under Python 3.15 when Qt leaves a lazy executor unresolved.
-- Rename the post-upload recycle mode to trash, alongside move and delete.
-- Reject move-after-upload settings without a destination.
-- Add launcher help and foreground options; show a branded macOS Dock icon.
-- Use the iRODS Ingest name in the macOS application menu.
-- Persist activity history and expand automated test coverage.
+### Changed
+
+- Cleaned up layout and naming consistency (#43, #69, #70).
+- Monitor all folders recursively (#53).
+- Use iRODS logo for dock, app switcher, menu (#75).
+- Moved recent activity to Log tab (#76).
+
+### Removed
+
+- Remove 'keep' mode, files are only moved, trashed, or deleted after upload (#31).
+
+### Fixed
+
+- Reject move-after-upload settings without a destination (#48).
+- Fix Python 3.15 parallel uploads when Qt leaves a lazy executor unresolved (#72).
+
+### Added
+
+- Prevent monitoring ancestors and descendents of monitored folders (#33).
+- Add visibility to queue (#38).
+- Add multiple simultaneous uploads (#39).
+- Walk newly monitored folder immediately (#49).
+- Add Automatic mode for upload settings (#71).
+- Add intermediate upload progress and ETA (#73).
+- Add walk monitored folders on startup (#74).
+- Add About tab with project information and latest release check (#77).
+- Add automatic save for settings updates (#79).
+- Add configurable threads per upload (#80).
+- Add Throughput tab with graph of recent history (#81).
 
 ## [0.1.1] - 2026-09-16
 
